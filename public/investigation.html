@@ -37,18 +37,19 @@
         <input
           id="case-question"
           type="text"
-          placeholder="Will the SpaceX Falcon 9 launch proceed on time?"
+          placeholder="Will there be a significant delay in the next major rocket launch?"
         />
-        <small>Be specific and include identifiers (launch IDs, flight numbers, repo names)</small>
+        <small>Ask any general question. Jurors will search for news and use case-specific tools if relevant identifiers are provided.</small>
       </div>
 
       <div class="form-group">
-        <label for="case-id">Case ID (optional)</label>
+        <label for="case-id">Case ID (optional, for specific tools)</label>
         <input
           id="case-id"
           type="text"
-          placeholder="case_001"
+          placeholder="e.g., launch ID, flight ICAO, or repo owner/name"
         />
+        <small>Leave blank to rely on news search only</small>
       </div>
 
       <button id="investigate-btn" onclick="startInvestigation()">

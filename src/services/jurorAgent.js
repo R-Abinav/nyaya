@@ -421,6 +421,40 @@ function getMockToolsForCaseType(caseType) {
     ],
   };
 
+  // Add news search tool to all case types for contextual evidence
+  const newsTool = {
+    type: 'function',
+    function: {
+      name: 'search_news',
+      description: 'Search recent news articles for contextual information about the case. Useful for gathering background information, recent developments, or public sentiment. Provide a search query related to the case topic.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Search query for news articles (e.g., "SpaceX launch", "flight delay", "GitHub repository")',
+          },
+          daysBack: {
+            type: 'number',
+            description: 'Number of days back to search for news (default: 7)',
+            default: 7,
+          },
+          language: {
+            type: 'string',
+            description: 'Language for news articles (default: en)',
+            default: 'en',
+          },
+        },
+        required: ['query'],
+      },
+    },
+  };
+
+  // Add news tool to each case type
+  for (const caseType in toolsByType) {
+    toolsByType[caseType].push(newsTool);
+  }
+
   return toolsByType[caseType] || [];
 }
 

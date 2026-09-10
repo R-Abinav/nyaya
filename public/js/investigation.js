@@ -3,18 +3,18 @@
 const EXAMPLES = {
   rocket: {
     type: 'rocket-launch',
-    question: 'Will SpaceX Starship flight 6 (launch ID: f4b6c4c0-42c4-4b9d-8c6f-4c9b9b9b9b9b) lift off successfully during its window?',
-    id: `rc_${Date.now()}`
+    question: 'Will there be a significant delay in the next major rocket launch?',
+    id: ''
   },
   flight: {
     type: 'flight-delay',
-    question: 'Will United flight UA123 (ICAO: a12345) arrive on time given current weather conditions?',
-    id: `fl_${Date.now()}`
+    question: 'Will there be a significant delay in the next major flight?',
+    id: ''
   },
   github: {
     type: 'github-stars',
-    question: 'Will the facebook/react repository cross 250,000 stars by next month?',
-    id: `gh_${Date.now()}`
+    question: 'Will a popular open-source project gain significant stars in the next month?',
+    id: ''
   }
 };
 
