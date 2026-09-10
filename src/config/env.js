@@ -26,6 +26,12 @@ module.exports = {
   // Free public API, rate-limited for unauthenticated requests
   GITHUB_API_URL: 'https://api.github.com',
 
+  // News APIs - contextual evidence (optional)
+  // NewsAPI.org: 100 requests/day free tier
+  NEWS_API_KEY: process.env.NEWS_API_KEY,
+  // NewsData.io: 200 requests/day free tier
+  NEWSDATA_API_KEY: process.env.NEWSDATA_API_KEY,
+
   // Legacy APIs (for price checks, etc.)
   COINGECKO_API_URL: 'https://api.coingecko.com/api/v3',
 };

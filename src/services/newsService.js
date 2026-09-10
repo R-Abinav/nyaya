@@ -1,68 +1,160 @@
-const { NEWS_API_URL } = require('../config/env');
+/**
+ * News API Service for contextual evidence gathering
+ *
+ * Uses NewsAPI.org (free tier: 100 requests/day, developer key required)
+ * Fallback: NewsData.io (free tier: 200 requests/day)
+ *
+ * Purpose: Jurors can gather contextual evidence about:
+ * - Company news (SpaceX, airlines, etc.)
+ * - Weather events affecting launches/flights
+ * - Technical issues or delays
+ * - General sentiment and trends
+ */
+
+const { NEWS_API_KEY, NEWSDATA_API_KEY } = require('../config/env');
 
 /**
- * Searches for cryptocurrency news with flexible parameters
- * @param {Object} options - Search options
- * @param {string} [options.query=''] - Search query
- * @param {number} [options.limit=20] - Number of articles to return
- * @param {string} [options.category=''] - Filter by category
- * @param {string} [options.source=''] - Filter by source
- * @returns {Promise<Object>}
+ * Search news using NewsAPI.org
+ * Free tier: 100 requests/day, requires API key
  */
-async function searchNews({ query = '', limit = 20, category = '', source = '' } = {}) {
-  // Enforce limits to prevent LLM from going rogue
-  const MAX_LIMIT = 100;
-  const actualLimit = Math.min(limit, MAX_LIMIT);
+async function searchNewsAPI({ query, from, to, language = 'en', sortBy = 'relevancy' }) {
+  if (!NEWS_API_KEY) {
+    throw new Error('NEWS_API_KEY not configured');
+  }
 
-  // Build query parameters
-  const params = new URLSearchParams();
-  if (query) params.append('q', query);
-  if (category) params.append('category', category);
-  if (source) params.append('source', source);
-  params.append('limit', actualLimit.toString());
+  const params = new URLSearchParams({
+    q: query,
+    language,
+    sortBy,
+    apiKey: NEWS_API_KEY,
+  });
 
-  const url = `${NEWS_API_URL}/news?${params.toString()}`;
+  if (from) params.append('from', from);
+  if (to) params.append('to', to);
 
-  console.log('[newsService] Fetching from:', url);
+  const url = `https://newsapi.org/v2/everything?${params.toString()}`;
+
+  console.log('[newsService] Fetching from NewsAPI.org');
 
   try {
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'Nyaya-Prediction-Market/1.0 (Node.js)',
-        'Accept': 'application/json',
+        'User-Agent': 'Nyaya-Juror-Agent/1.0',
       },
     });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`NewsAPI error: ${error.message || response.status}`);
+    }
+
     const data = await response.json();
 
-    const articles = data.articles || [];
-
     return {
-      articles: articles.map(article => ({
+      source: 'newsapi.org',
+      totalResults: data.totalResults,
+      articles: data.articles?.slice(0, 10).map(article => ({
         title: article.title,
         description: article.description,
-        source: article.source,
-        pubDate: article.pubDate,
-        timeAgo: article.timeAgo,
-        link: article.link,
-      })),
-      totalCount: data.totalCount || articles.length,
-      fetchedAt: data.fetchedAt || new Date().toISOString(),
-      parameters: {
-        query,
-        limit: actualLimit,
-        category,
-        source,
-      },
+        source: article.source?.name,
+        author: article.author,
+        publishedAt: article.publishedAt,
+        url: article.url,
+      })) || [],
+      timestamp: new Date().toISOString(),
     };
   } catch (error) {
-    console.error('[newsService] Error fetching news:', error.message);
-    return {
-      error: `Failed to fetch news: ${error.message}`,
-      articles: [],
-    };
+    console.error('[newsService] NewsAPI error:', error.message);
+    throw error;
   }
 }
 
+/**
+ * Search news using NewsData.io
+ * Free tier: 200 requests/day
+ */
+async function searchNewsData({ query, language = 'en', country }) {
+  if (!NEWSDATA_API_KEY) {
+    throw new Error('NEWSDATA_API_KEY not configured');
+  }
+
+  const params = new URLSearchParams({
+    q: query,
+    language,
+    apikey: NEWSDATA_API_KEY,
+  });
+
+  if (country) params.append('country', country);
+
+  const url = `https://newsdata.io/api/1/news?${params.toString()}`;
+
+  console.log('[newsService] Fetching from NewsData.io');
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Nyaya-Juror-Agent/1.0',
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(`NewsData error: ${error.message || response.status}`);
+    }
+
+    const data = await response.json();
+
+    return {
+      source: 'newsdata.io',
+      totalResults: data.totalResults,
+      articles: data.results?.slice(0, 10).map(article => ({
+        title: article.title,
+        description: article.description,
+        source: article.source_id,
+        pubDate: article.pubDate,
+        link: article.link,
+      })) || [],
+      timestamp: new Date().toISOString(),
+    };
+  } catch (error) {
+    console.error('[newsService] NewsData error:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Search contextual news - tries NewsAPI first, falls back to NewsData
+ */
+async function searchContextualNews({ query, daysBack = 7, language = 'en' }) {
+  console.log(`[newsService] Searching news for: "${query}" (${daysBack} days back)`);
+
+  // Calculate date range
+  const to = new Date().toISOString();
+  const from = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    // Try NewsAPI first (better quality, but more limited)
+    if (NEWS_API_KEY) {
+      return await searchNewsAPI({ query, from, to, language });
+    }
+  } catch (error) {
+    console.warn('[newsService] NewsAPI failed, trying fallback:', error.message);
+  }
+
+  try {
+    // Fallback to NewsData
+    if (NEWSDATA_API_KEY) {
+      return await searchNewsData({ query, language });
+    }
+  } catch (error) {
+    console.error('[newsService] All news sources failed:', error.message);
+  }
+
+  throw new Error('No news API configured or all sources failed');
+}
+
 module.exports = {
-  searchNews,
+  searchNewsAPI,
+  searchNewsData,
+  searchContextualNews,
 };
