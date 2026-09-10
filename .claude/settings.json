@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(pnpm *)",
-      "Bash(npx hardhat *)",
+      "Bash(forge build *)",
+      "Bash(forge test *)",
+      "Bash(forge script *)",
+      "Bash(anvil *)",
       "Bash(npx graph *)",
       "Bash(git status)",
       "Bash(git diff *)",
