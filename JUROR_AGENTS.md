@@ -247,11 +247,36 @@ curl -X POST http://localhost:3000/juror/investigate \
 ✅ Commit-reveal hash generation  
 ✅ Salt generation and handling  
 ✅ Evidence trail tracking  
+✅ **Real evidence APIs with live data:**
+  - **Launch Library 2** for rocket launches (thespacedevs.com)
+  - **OpenSky Network** for flight status (4,000 free credits/day)
+  - **Open-Meteo** for weather data (completely free)
+  - **GitHub API** for repository metrics (free public API)
+
+## Evidence APIs
+
+All evidence tools call real, live, free public APIs:
+
+### Rocket Launch Tools
+- `get_launch_status`: Current launch status from Launch Library 2
+- `get_launch_pad_history`: Historical launch data for reliability assessment
+
+### Flight Delay Tools  
+- `get_flight_status`: Real-time ADS-B data from OpenSky Network
+- `get_weather`: Current weather from Open-Meteo
+
+### GitHub Stars Tools
+- `get_repo_stars`: Current star count and repository metrics
+- `get_repo_activity`: Recent commit activity for trend analysis
+
+**Test the APIs:**
+```bash
+node test-evidence-apis.js
+```
 
 ## What's Next (Production TODOs)
 
 - [ ] Wire real x402 payments to Evidence Gateway
-- [ ] Implement Evidence Gateway with real upstream APIs
 - [ ] Connect to Hedera testnet for treasury and commitment transactions
 - [ ] Implement salt persistence (filesystem or database)
 - [ ] Add proper ABI encoding for commitment hash (matching Solidity contract)
@@ -259,6 +284,7 @@ curl -X POST http://localhost:3000/juror/investigate \
 - [ ] Add rate limiting and withdrawal caps
 - [ ] Implement resolution checker scripts per case type
 - [ ] Add ENS identity integration
+- [ ] Build Evidence Gateway with x402 payment middleware
 
 ## Architecture Notes
 

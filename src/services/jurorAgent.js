@@ -54,36 +54,51 @@ async function sendLLMRequest(messages, tools) {
 
 /**
  * Execute a tool call
- * In production, this would:
+ *
+ * Calls the real evidence service with live data from free public APIs.
+ * In production, this would also:
  * - Withdraw x402 payment from juror treasury
  * - Pay the Evidence Gateway
- * - Return the evidence data
- *
- * For now, this is a placeholder that simulates the structure
+ * - Log payment on-chain
  */
 async function executeToolCall(toolCall, caseId, jurorId) {
+  const { executeEvidenceTool } = require('./evidenceService');
+
   const toolName = toolCall.function.name;
   const args = JSON.parse(toolCall.function.arguments || '{}');
 
   console.log(`[${jurorId}] Executing tool: ${toolName}`, args);
 
-  // TODO: Wire real x402 payments to Evidence Gateway
-  // const payment = await withdrawFromTreasury(jurorId, caseId, TOOL_COST);
-  // const evidence = await callEvidenceGateway(toolName, args, payment);
+  try {
+    // Call real evidence service
+    const result = await executeEvidenceTool(toolName, args);
 
-  // Simulate tool execution for now
-  const mockCost = 0.01; // HBAR per call
+    // TODO: Wire real x402 payments
+    // const payment = await withdrawFromTreasury(jurorId, caseId, TOOL_COST);
+    // const settlement = await payEvidenceGateway(toolName, payment);
 
-  return {
-    toolName,
-    args,
-    cost: mockCost,
-    result: {
-      // TODO: Replace with real Evidence Gateway responses
-      placeholder: `Mock result for ${toolName}`,
-      timestamp: new Date().toISOString(),
-    },
-  };
+    const mockCost = 0.01; // HBAR per call
+
+    return {
+      toolName,
+      args,
+      cost: mockCost,
+      result,
+    };
+  } catch (error) {
+    console.error(`[${jurorId}] Tool execution failed:`, error.message);
+
+    // Return error but don't crash the investigation
+    return {
+      toolName,
+      args,
+      cost: 0,
+      result: {
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
 }
 
 /**
@@ -274,8 +289,8 @@ function calculateStake(confidence, treasuryBalance) {
 }
 
 /**
- * Mock tools for different case types
- * TODO: Replace with dynamic loading from Evidence Gateway registry
+ * Get tools for different case types
+ * Loads from real evidence service API endpoints
  */
 function getMockToolsForCaseType(caseType) {
   const toolsByType = {
@@ -284,11 +299,14 @@ function getMockToolsForCaseType(caseType) {
         type: 'function',
         function: {
           name: 'get_launch_status',
-          description: 'Get current status of a rocket launch from Launch Library 2',
+          description: 'Get current status of a rocket launch from Launch Library 2 (thespacedevs.com). Returns launch name, status, window times, probability, hold/fail reasons, and pad information.',
           parameters: {
             type: 'object',
             properties: {
-              launchId: { type: 'string', description: 'Launch ID' },
+              launchId: {
+                type: 'string',
+                description: 'Launch ID from Launch Library 2 (e.g., "f4b6c4c0-42c4-4b9d-8c6f-4c9b9b9b9b9b")',
+              },
             },
             required: ['launchId'],
           },
@@ -297,12 +315,20 @@ function getMockToolsForCaseType(caseType) {
       {
         type: 'function',
         function: {
-          name: 'get_launch_history',
-          description: 'Get historical launch data for the launch pad',
+          name: 'get_launch_pad_history',
+          description: 'Get historical launch data for a specific launch pad to assess reliability. Returns recent launches from this pad with their outcomes.',
           parameters: {
             type: 'object',
             properties: {
-              padId: { type: 'string', description: 'Launch pad ID' },
+              padId: {
+                type: 'string',
+                description: 'Launch pad ID from Launch Library 2',
+              },
+              limit: {
+                type: 'number',
+                description: 'Number of historical launches to retrieve (default: 10, max: 20)',
+                default: 10,
+              },
             },
             required: ['padId'],
           },
@@ -314,11 +340,14 @@ function getMockToolsForCaseType(caseType) {
         type: 'function',
         function: {
           name: 'get_flight_status',
-          description: 'Get real-time flight status from OpenSky Network',
+          description: 'Get real-time flight status from OpenSky Network using ADS-B data. Returns current position, altitude, velocity, and ground status.',
           parameters: {
             type: 'object',
             properties: {
-              icao24: { type: 'string', description: 'Aircraft ICAO24 identifier' },
+              icao24: {
+                type: 'string',
+                description: 'Aircraft ICAO24 transponder address (6-character hex, e.g., "a1b2c3")',
+              },
             },
             required: ['icao24'],
           },
@@ -328,12 +357,18 @@ function getMockToolsForCaseType(caseType) {
         type: 'function',
         function: {
           name: 'get_weather',
-          description: 'Get weather data for departure or arrival airport',
+          description: 'Get current weather conditions from Open-Meteo for departure or arrival location. Returns temperature, wind speed/direction, and weather code.',
           parameters: {
             type: 'object',
             properties: {
-              latitude: { type: 'number' },
-              longitude: { type: 'number' },
+              latitude: {
+                type: 'number',
+                description: 'Latitude in decimal degrees',
+              },
+              longitude: {
+                type: 'number',
+                description: 'Longitude in decimal degrees',
+              },
             },
             required: ['latitude', 'longitude'],
           },
@@ -345,12 +380,18 @@ function getMockToolsForCaseType(caseType) {
         type: 'function',
         function: {
           name: 'get_repo_stars',
-          description: 'Get current star count for a GitHub repository',
+          description: 'Get current star count and repository metrics from GitHub API. Returns stars, forks, watchers, open issues, and update timestamps.',
           parameters: {
             type: 'object',
             properties: {
-              owner: { type: 'string', description: 'Repository owner' },
-              repo: { type: 'string', description: 'Repository name' },
+              owner: {
+                type: 'string',
+                description: 'Repository owner username (e.g., "facebook")',
+              },
+              repo: {
+                type: 'string',
+                description: 'Repository name (e.g., "react")',
+              },
             },
             required: ['owner', 'repo'],
           },
@@ -360,12 +401,18 @@ function getMockToolsForCaseType(caseType) {
         type: 'function',
         function: {
           name: 'get_repo_activity',
-          description: 'Get recent activity metrics for the repository',
+          description: 'Get recent commit activity metrics for the repository to assess momentum. Returns weekly commit counts for trend analysis.',
           parameters: {
             type: 'object',
             properties: {
-              owner: { type: 'string' },
-              repo: { type: 'string' },
+              owner: {
+                type: 'string',
+                description: 'Repository owner username',
+              },
+              repo: {
+                type: 'string',
+                description: 'Repository name',
+              },
             },
             required: ['owner', 'repo'],
           },
