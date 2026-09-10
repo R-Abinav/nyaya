@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nyaya Juror Profiles</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <style>
+    .jurors-page {
+      max-width: 1200px;
+      width: 100%;
+    }
+
+    nav {
+      display: flex;
+      gap: 1.5rem;
+      margin-right: auto;
+      margin-left: 2rem;
+    }
+
+    nav a {
+      color: #9ca3af;
+      text-decoration: none;
+      font-weight: 500;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+
+    nav a:hover, nav a.active {
+      color: #c084fc;
+      background: #14141f;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #9ca3af;
+      margin-top: -0.5rem;
+      margin-bottom: 3rem;
+    }
+
+    .jurors-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 2rem;
+      margin-bottom: 3rem;
+    }
+
+    .juror-profile {
+      background: #12121c;
+      border: 1px solid #1e1e2e;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .juror-header {
+      padding: 2rem 1.5rem;
+      background: linear-gradient(135deg, #1e1e2e, #0e0e18);
+      border-bottom: 1px solid #1e1e2e;
+      text-align: center;
+    }
+
+    .juror-icon {
+      font-size: 3.5rem;
+      margin-bottom: 1rem;
+      display: inline-block;
+    }
+
+    .juror-name {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #e2e2e8;
+      margin-bottom: 0.5rem;
+    }
+
+    .juror-ens {
+      color: #c084fc;
+      font-family: monospace;
+      font-size: 0.9rem;
+      background: #1e1e2e;
+      padding: 0.25rem 0.75rem;
+      border-radius: 4px;
+      display: inline-block;
+    }
+
+    .juror-body {
+      padding: 1.5rem;
+      flex: 1;
+    }
+
+    .juror-section {
+      margin-bottom: 1.5rem;
+    }
+
+    .juror-section h4 {
+      color: #9ca3af;
+      text-transform: uppercase;
+      font-size: 0.8rem;
+      letter-spacing: 1px;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .juror-section h4::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #2e2e3e;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .metric {
+      background: #0e0e18;
+      padding: 1rem;
+      border-radius: 8px;
+      border: 1px solid #1e1e2e;
+    }
+
+    .metric-value {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #c084fc;
+      margin-bottom: 0.25rem;
+    }
+
+    .metric-label {
+      font-size: 0.75rem;
+      color: #6b7280;
+    }
+
+    .trait-list {
+      list-style: none;
+    }
+
+    .trait-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+      font-size: 0.9rem;
+      color: #d1d5db;
+    }
+
+    .trait-icon {
+      color: #34d399;
+      margin-top: 2px;
+    }
+
+    .system-prompt-toggle {
+      width: 100%;
+      padding: 1rem;
+      background: #14141f;
+      border: 1px solid #2e2e3e;
+      border-radius: 8px;
+      color: #e2e2e8;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.2s;
+    }
+
+    .system-prompt-toggle:hover {
+      border-color: #7c5cfc;
+    }
+
+    .system-prompt-content {
+      display: none;
+      padding: 1rem;
+      background: #0e0e18;
+      border: 1px solid #1e1e2e;
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #9ca3af;
+      white-space: pre-wrap;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    #loading {
+      text-align: center;
+      padding: 4rem;
+      color: #9ca3af;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">⚖ Nyaya</div>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/investigation.html">Investigations</a>
+      <a href="/jurors.html" class="active">Jurors</a>
+    </nav>
+  </header>
+
+  <main class="jurors-page">
+    <h1>Juror Profiles</h1>
+    <p class="subtitle">Three AI agents, one model, three distinct personalities</p>
+
+    <div id="loading">
+      <div class="spinner"></div>
+      <p style="margin-top: 1rem;">Loading profiles...</p>
+    </div>
+
+    <div id="jurors-container" class="jurors-grid" style="display: none;">
+      <!-- Populated by JS -->
+    </div>
+  </main>
+
+  <footer>Nyaya — AI-powered juror market on Hedera</footer>
+
+  <script>
+    const icons = {
+      'skeptic': '🕵️',
+      'pragmatist': '⚖️',
+      'maverick': '🚀'
+    };
+
+    const descriptions = {
+      'skeptic': [
+        'Demands high-quality, cross-verified evidence',
+        'Distrusts single sources, looks for corroboration',
+        'Will spend heavily on evidence to achieve certainty',
+        'Never expressions >95% confidence'
+      ],
+      'pragmatist': [
+        'Seeks optimal evidence-to-cost ratio',
+        'Makes calculated decisions about when evidence is "good enough"',
+        'Prioritizes high-value tools over exhaustive research',
+        'Balances thoroughness with efficiency'
+      ],
+      'maverick': [
+        'Makes bold calls with limited evidence',
+        'Trusts pattern recognition and early signals',
+        'Values decisiveness over exhaustive analysis',
+        'Willing to express very high conviction (99%)'
+      ]
+    };
+
+    async function loadJurors() {
+      try {
+        // We'll load the info directly from the API endpoint we created earlier
+        const response = await fetch('/juror/info');
+        const data = await response.json();
+
+        // Load detailed profiles for the system prompts
+        const detailsPromises = data.jurors.map(j => fetch(`/juror/${j.id}`).then(r => r.json()));
+        const fullDetails = await Promise.all(detailsPromises);
+
+        document.getElementById('loading').style.display = 'none';
+        const container = document.getElementById('jurors-container');
+        container.style.display = 'grid';
+
+        container.innerHTML = fullDetails.map(juror => `
+          <div class="juror-profile">
+            <div class="juror-header">
+              <div class="juror-icon">${icons[juror.id]}</div>
+              <div class="juror-name">${juror.name}</div>
+              <div class="juror-ens">${juror.ensName}</div>
+            </div>
+
+            <div class="juror-body">
+              <div class="juror-section">
+                <h4>Personality Traits</h4>
+                <ul class="trait-list">
+                  ${descriptions[juror.id].map(trait => `
+                    <li class="trait-item">
+                      <span class="trait-icon">✓</span>
+                      ${trait}
+                    </li>
+                  `).join('')}
+                </ul>
+              </div>
+
+              <div class="juror-section">
+                <h4>Behavioral Metrics</h4>
+                <div class="metric-grid">
+                  <div class="metric">
+                    <div class="metric-value">${juror.toolPreferences.typicalToolCalls}</div>
+                    <div class="metric-label">Typical Tool Calls</div>
+                  </div>
+                  <div class="metric">
+                    <div class="metric-value">${juror.confidenceThresholds.maxConfidence}%</div>
+                    <div class="metric-label">Max Confidence</div>
+                  </div>
+                  <div class="metric">
+                    <div class="metric-value">${juror.toolPreferences.requiresCrossCheck ? 'Yes' : 'No'}</div>
+                    <div class="metric-label">Requires Cross-Check</div>
+                  </div>
+                  <div class="metric">
+                    <div class="metric-value">${juror.confidenceThresholds.minimumEvidence}</div>
+                    <div class="metric-label">Min Evidence Sources</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style="margin-top: 2rem;">
+                <button class="system-prompt-toggle" onclick="togglePrompt('${juror.id}')">
+                  View System Prompt
+                  <span id="icon-${juror.id}">▼</span>
+                </button>
+                <div id="prompt-${juror.id}" class="system-prompt-content">${juror.systemPrompt}</div>
+              </div>
+            </div>
+          </div>
+        `).join('');
+
+      } catch (error) {
+        document.getElementById('loading').innerHTML = `
+          <div style="color: #fb7185;">Failed to load juror profiles: ${error.message}</div>
+        `;
+      }
+    }
+
+    function togglePrompt(id) {
+      const content = document.getElementById(`prompt-${id}`);
+      const icon = document.getElementById(`icon-${id}`);
+      const btn = content.previousElementSibling;
+
+      if (content.style.display === 'block') {
+        content.style.display = 'none';
+        icon.textContent = '▼';
+        btn.style.borderRadius = '8px';
+      } else {
+        content.style.display = 'block';
+        icon.textContent = '▲';
+        btn.style.borderRadius = '8px 8px 0 0';
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', loadJurors);
+  </script>
+</body>
+</html>
