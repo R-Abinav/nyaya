@@ -145,3 +145,4 @@ vite.config.ts.timestamp-*
 # other
 .claude/settings.local.json
 .DS_Store
+BUILD_GUIDE.md
