@@ -9,17 +9,25 @@ paths:
 - `src/jury/` — the resolver: juror registry, treasury custody, case lifecycle, commit-reveal, settlement, x402 withdrawal path.
 - `src/shares/` — ATS juror share tokens, the bonding curve that reads recorded return, the 70/30 purchase split, mass payout of the skim.
 - `src/anchor/` — Sepolia only. Mirrors finalised results for indexing.
-- `test/` for forge tests, `script/` for forge deploy scripts.
+- `test/` for forge tests, `script/` for deploy scripts.
 
 Nothing is vendored. All contract code here is ours.
 
 ## Toolchain
-- Foundry: `forge build`, `forge test`, `forge script` for deploys. The pnpm scripts in `package.json` wrap these.
+- Foundry: `forge build` and `forge test` on both chains. Deploys use a different mechanism per chain; see below. The pnpm scripts in `package.json` wrap these.
 - Two RPC endpoints in `foundry.toml`, `hedera` and `sepolia`, both read from env (`${HEDERA_RPC_URL}`, `${SEPOLIA_RPC_URL}`). Never hardcode an RPC URL or a key in a script.
-- Inside Hedera's EVM, `msg.value` and balances are in tinybars (8 decimals), while the JSON-RPC relay presents 18-decimal weibars to clients. Keep units explicit everywhere HBAR moves.
-- Deploy scripts write addresses to a committed JSON per network so the other packages read them from one place. Never paste an address into more than one file.
-- Every broadcast run of a deploy script rewrites that network's JSON entry for every contract it deployed, unconditionally, even if the deploy was unexpected or a repeat. `forge script --broadcast` is pre-approved in `.claude/settings.json`, so this is the guard against a stray deploy leaving another package pointing at a stale address.
-- A dry run (no `--broadcast`) must never write the JSON. Its addresses were only simulated and exist on no chain. Use `vm.isContext(VmSafe.ForgeContext.ScriptBroadcast)` to tell a broadcast from a dry run.
+- Foundry only loads `.env` from `packages/contracts/`, not from the repo root. `packages/contracts/.env` is a gitignored symlink to the root `.env`, so there is still one secrets file.
+- Inside Hedera's EVM, `msg.value` and balances are in tinybars (8 decimals), while the JSON-RPC relay presents 18-decimal weibars to clients. Keep units explicit everywhere HBAR moves. Verified on testnet with `HederaSmoke`: sending 10¹⁰ weibar arrived as `msg.value == 1`, and the relay reports the contract's balance as 10¹⁰.
+- `evm_version = "cancun"` is verified on Hedera testnet: `HederaSmoke.ping` executed MCOPY successfully (tx `0xb87ab4b09a8e487c673ff76b85a7b66c4c80755ee4710c87a9380d4f6b349093`).
+- Hedera's relay fills `contractAddress` in the receipt of a plain contract call, not just a deployment. Never infer "a contract was deployed" from `receipt.contractAddress` on Hedera.
+
+## Deploys: two mechanisms, one per chain
+- **Sepolia deploys with `forge script`.**
+- **Hedera deploys with `forge create` and `cast send`, driven by a small committed script.** `forge script` cannot target Hedera through Hashio, Hedera's public JSON-RPC relay. To simulate, `forge script` forks the chain pinned to a block hash and sends EIP-1898 block parameters such as `eth_getTransactionCount(addr, {"blockHash": …})`. Hashio rejects that object form for every method, and rejects a bare block hash for `eth_getCode`; it accepts only hex block numbers and tags like `"latest"`. `--fork-block-number` does not help, because Foundry converts the number back to a hash. This was tested directly against Hashio with Foundry 1.8.1, not assumed. `forge create` does not fork, and its requests use `"latest"`, which Hashio accepts.
+- Both mechanisms write addresses to a committed JSON per network so the other packages read them from one place. Never paste an address into more than one file.
+- Every real deploy rewrites that network's JSON entry for every contract it deployed, unconditionally, even if the deploy was unexpected or a repeat. `forge script --broadcast` is pre-approved in `.claude/settings.json`, so this is the guard against a stray deploy leaving another package pointing at a stale address.
+- **Sepolia dry-run guard:** a `forge script` run without `--broadcast` must never write the JSON. Its addresses were only simulated and exist on no chain. Use `vm.isContext(VmSafe.ForgeContext.ScriptBroadcast)` to tell a broadcast from a dry run.
+- **Hedera write rule:** `forge create` has no separate simulate-then-broadcast phase, so the Hedera script needs no dry-run guard. Instead, it writes an address only after `forge create --broadcast` has returned a real deployed address and transaction hash, parsed from `forge create --json` output (`deployedTo`, `transactionHash`), never from a guess or a precomputed address.
 
 ## What the resolver must implement
 - **Two ways to open a case.** `openCase()` is permissionless, with the bounty attached as `msg.value`. A separate operator-gated function opens a case funded from the Case Bounty Treasury balance, which the resolver holds. Record each case's bounty source in the `CaseOpened` event.
