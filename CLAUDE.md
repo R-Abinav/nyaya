@@ -18,7 +18,7 @@ Nobody bets on case outcomes. Cases exist only to generate each juror's track re
 pnpm install                      # install all workspaces
 pnpm -F contracts build           # forge build
 pnpm -F contracts test            # forge test
-pnpm -F contracts deploy:hedera   # forge script against the hedera RPC endpoint
+pnpm -F contracts deploy:hedera   # forge create + cast via the Hedera deploy script (forge script can't fork through Hashio)
 pnpm -F contracts deploy:sepolia  # forge script against the sepolia RPC endpoint
 pnpm -F agent dev                 # run a juror agent against one case
 pnpm -F evidence-gateway dev      # run the x402 gateway locally
