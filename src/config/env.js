@@ -6,7 +6,7 @@ module.exports = {
   // OpenRouter for LLM (NVIDIA Nemotron)
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   OPENROUTER_API_URL: 'https://openrouter.ai/api/v1/chat/completions',
-  OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || 'nvidia/llama-3.1-nemotron-70b-instruct',
+  OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || 'nvidia/nemotron-3.5-lightning:free',
 
   // Evidence APIs - all free, live, real data sources
 

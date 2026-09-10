@@ -208,7 +208,7 @@ Add to your `.env`:
 
 ```bash
 OPENROUTER_API_KEY=your_key_here
-OPENROUTER_MODEL=nvidia/llama-3.1-nemotron-70b-instruct
+OPENROUTER_MODEL=nvidia/nemotron-3.5-lightning:free
 ```
 
 ## Running the Server

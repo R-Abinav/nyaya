@@ -14,7 +14,7 @@ const crypto = require('crypto');
  */
 
 // Model configuration - all jurors use NVIDIA Nemotron
-const MODEL = 'nvidia/llama-3.1-nemotron-70b-instruct';
+const MODEL = 'nvidia/nemotron-3.5-lightning:free';
 
 /**
  * Sends a request to OpenRouter API
