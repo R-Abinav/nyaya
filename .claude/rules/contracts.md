@@ -32,19 +32,21 @@ Nothing is vendored. All contract code here is ours.
 ## What the resolver must implement
 - **Two ways to open a case.** `openCase()` is permissionless, with the bounty attached as `msg.value`. A separate operator-gated function opens a case funded from the Case Bounty Treasury balance, which the resolver holds. Record each case's bounty source in the `CaseOpened` event.
 - **Three jurors, equal genesis treasury.** Every juror rules on every case. No panel selection, no majority vote, no tier-based stake ceilings.
-- **Commit-reveal.** A commitment is `keccak256(abi.encode(caseId, juror, ruling, confidence, salt))`. The case id and juror address are bound in so a juror cannot copy another's commitment and then replay its reveal. Commits close at the commit deadline; reveals open after it and carry the IPFS CID of the juror's evidence trail. Only the CID goes on-chain. A juror that commits but does not reveal is slashed as incorrect.
+- **Commit-reveal.** A commitment is `keccak256(abi.encode(caseId, juror, ruling, confidence, salt))`. The case id and juror address are bound in so a juror cannot copy another's commitment and then replay its reveal. Commits close at the commit deadline, and reveals open after it. A reveal carries ruling, confidence, salt, and the IPFS CID of the juror's evidence trail, and nothing else. There is no spend field. Only the CID goes on-chain. A juror that commits but does not reveal is slashed as incorrect.
 - **Confidence-scaled stake, locked at commit.** Stake is taken from the juror's treasury, which the resolver custodies. The contract records stated confidence but does not verify it. Scaling stake to confidence is agent policy.
-- **Outcome submission.** Only the operator submits a case outcome, only after the resolution time, and always with the IPFS CID of the resolution checker's raw evidence. Only the CID goes on-chain, never the evidence itself. This is the only off-chain input to settlement. Never add another.
+- **Outcome submission.** Only the operator submits a case outcome, only between the resolution time and the end of the 24-hour grace period after it, and always with the IPFS CID of the resolution checker's raw evidence. Only the CID goes on-chain, never the evidence itself. This is the only off-chain input to settlement. Never add another.
+- **Cancellation.** Once the grace period has ended with no outcome submitted, anyone can cancel the case, not just the operator. Cancellation refunds every committed juror's full stake, whether or not it revealed, and returns the bounty to its recorded source. Keep this a separate code path from the non-reveal forfeit. A non-reveal is a juror's choice and forfeits the stake; a missing outcome is a platform failure and refunds it.
 - **Settlement math, deterministic given the outcome:**
   - `P = bounty + Σ stake` of incorrect jurors; `S = Σ stake` of correct jurors.
   - Correct juror: stake returned plus `reward = P · stake / S`. Proportional to stake, never an equal split.
   - Incorrect or unrevealed juror: whole stake slashed into `P`.
+  - `x402Spend` is the sum of the juror's withdrawals tagged with this case id. Settlement reads it only from that history, never from anything the juror submits.
   - `net = reward − x402Spend` if correct, `−stake − x402Spend` if not. Never drop the x402 term.
   - `return = net / (stake + x402Spend)`. This is the per-case figure. The bonding curve reads the juror's cumulative return since genesis, `Σ net / Σ (stake + x402Spend)` over all its settled cases, pre-skim. Store it as two per-juror running totals: signed cumulative net and cumulative capital. Never a mean of per-case percentages, and no sliding window.
   - Skim: 20% of positive net goes to the juror's shareholders via ATS mass payout, and 80% is credited to the juror's treasury. No skim on negative net.
   - No correct jurors: return the bounty to its source (the external opener, or the Case Bounty Treasury) and roll slashed stakes into the next case's pool.
-  - Round down on every division, and document where rounding dust goes.
-- **x402 withdrawal path.** A capped, rate-limited withdrawal from a juror's treasury to its hot wallet, tagged with a case id. The withdrawn amount counts as that case's `x402Spend`. This is a documented trust leak: the contract cannot verify where the money went after it leaves.
+  - Rounding: every payout is rounded down to the tinybar. Whatever is left of the pool after paying correct jurors goes to the Case Bounty Treasury, never to an individual juror. The skim is `floor(net × 20 / 100)` and the treasury credit is `net − skim`, so the skim leaves no remainder.
+- **x402 withdrawal path.** A capped, rate-limited withdrawal from a juror's treasury to its hot wallet, tagged with a case id at withdrawal time. The withdrawn amount counts as that case's `x402Spend`, and this is the only source settlement uses for spend. This is a documented trust leak: the contract cannot verify where the money went after it leaves.
 
 ## Share rules
 - A share purchase splits its trade value 70% to the juror's treasury in the resolver and 30% to the curve reserve. Redemptions pay out only from the reserve.
@@ -52,8 +54,8 @@ Nothing is vendored. All contract code here is ours.
 - A juror's own key and hot wallet must be blocked from holding that juror's shares. This is the anti-wash-trading control and it is a judged feature, not an optional guard.
 
 ## Events
-Every state change the subgraph or UI needs must emit an event: commit, reveal (with evidence-trail CID), outcome submission (with evidence CID), per-juror settlement (stake, spend, reward, net, return, skim), withdrawal (with case id), share trade, distribution. The subgraph rebuilds state from event deltas and must never need an RPC call per record.
+Every state change the subgraph or UI needs must emit an event: commit, reveal (with evidence-trail CID), outcome submission (with evidence CID), per-juror settlement (stake, spend, reward, net, return, skim), pool remainder to the Case Bounty Treasury, cancellation (with each refund), withdrawal (with case id), share trade, distribution. The subgraph rebuilds state from event deltas and must never need an RPC call per record.
 
 ## Testing
 - Forge tests are for logic. A test that passes against a mock but has never run against testnet is not evidence. After any resolver or share change, run the real end-to-end script against Hedera testnet and report the transaction hash.
-- Keep a test that reproduces the worked example in `docs/ARCHITECTURE.md` (A, B and C, a 20 HBAR bounty) and asserts the exact split and returns.
+- Keep a test that reproduces the worked example in `docs/ARCHITECTURE.md` (A, B and C, a 20 HBAR bounty). It asserts the rounded-down tinybar payouts exactly: A 4,166,666,666, B 833,333,333, and 1 tinybar to the Case Bounty Treasury. It checks the return identity by cross-multiplication, `(P·s_A − x_A·S)·(s_B + x_B) == (P·s_B − x_B·S)·(s_A + x_A)`, never by comparing rounded percentages.

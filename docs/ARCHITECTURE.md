@@ -52,11 +52,13 @@ open      question, case type, commit deadline, resolution time, and a bounty, e
 commit    each of the 3 jurors investigates (paying x402 per call), then submits
           keccak256(caseId, juror, ruling, confidence, salt) and locks a stake from its treasury
 reveal    after the commit deadline, each juror pins its evidence trail to IPFS and reveals ruling,
-          confidence, salt, and the trail's CID
-resolve   after the resolution time, the operator runs the case type's checker and submits the outcome
-          plus the IPFS CID of the raw evidence the checker used
+          confidence, salt, and the trail's CID (no spend figure; spend comes from tagged withdrawals)
+resolve   between the resolution time and the end of a 24-hour grace period, the operator runs the case
+          type's checker and submits the outcome plus the IPFS CID of the raw evidence the checker used
 settle    anyone triggers settlement: score each juror, split the pool, apply the skim, record return
 publish   operator writes the result to the Sepolia anchor and updates each juror's ENS score record
+cancel    if no outcome has been submitted when the grace period ends, anyone can cancel: every committed
+          juror's stake is refunded in full and the bounty returns to its source
 ```
 
 Every juror rules on every case. There is no panel selection and no majority vote. With three jurors, each one already gets equal at-bats, and each is scored independently against the resolved outcome.
@@ -66,6 +68,8 @@ Every juror rules on every case. There is no panel selection and no majority vot
 **Evidence trails are pinned after the commit deadline, never before.** IPFS content is not private. A CID announced to the network can be found and fetched without anyone being told it, so a trail pinned during the commit phase could leak its ruling to the other jurors.
 
 **A juror that commits but does not reveal is slashed as incorrect.** Otherwise a juror that sees it is losing could simply withhold its reveal.
+
+**A case with no reported outcome is cancelled, not graded.** The operator can submit an outcome from the resolution time until a 24-hour grace period ends. If nothing has been submitted by then, anyone, not just the operator, can cancel the case. Cancellation refunds every committed juror's full stake, whether or not it revealed, and returns the bounty to its source (the external opener or the Case Bounty Treasury). This is deliberately separate from the non-reveal rule above. Not revealing is a juror's own choice during normal operation and forfeits the stake. A missing outcome is a platform failure: there is nothing to grade, it is not the jurors' fault, and so the consequence is more forgiving.
 
 **Stake is locked at commit.** Because stake scales with confidence, the stake amount reveals roughly how confident a juror is before the reveal. The ruling itself stays hidden, and the ruling is what a free-rider would need.
 
@@ -85,9 +89,12 @@ There is no on-chain dispute window. It would cost contract complexity and demo 
 ### Definitions, per case
 
 - `bounty`: the case's bounty, whether attached by an external opener or drawn from the Case Bounty Treasury
-- `s_i`: juror i's stake; `x_i`: juror i's total x402 spend on this case
+- `s_i`: juror i's stake
+- `x_i`: juror i's total x402 spend on this case, read by the resolver from that juror's withdrawals tagged with this case id. The juror never submits it
 - `P = bounty + Σ s_j` over every incorrect juror (the reward pool)
 - `S = Σ s_j` over every correct juror
+- `R = P / S`: the pool per unit of correct stake, one number shared by every correct juror in the case
+- `α_i = x_i / s_i`: juror i's spend relative to its own stake
 
 ### Rules
 
@@ -96,32 +103,37 @@ There is no on-chain dispute window. It would cost contract complexity and demo 
 - `net_i = reward_i − x_i` if correct, or `−s_i − x_i` if incorrect. The x402 term is never dropped: a juror that overspends investigating sees its profit fall even when it wins.
 - `return_i = net_i / (s_i + x_i)`, the return on all capital deployed for the case, not on stake alone.
 - If no juror is correct, the bounty returns to its source (the external opener, or the Case Bounty Treasury) and the slashed stakes roll into the next case's pool.
+- Every payout is rounded down to the tinybar. Whatever is left of the pool after the correct jurors are paid goes to the Case Bounty Treasury, never to an individual juror.
 
-### Why this is wealth-neutral
+### What stake size does and does not buy
 
 This is a stake-weighted parimutuel mechanism, the same family as a racetrack tote board. That suits the product: people are, in effect, backing AI jurors the way they would back horses. Describe it only as a parimutuel in the docs, pitch, and UI. Never claim a stronger scoring or truthfulness property than the derivation below proves.
 
-Every correct juror earns the same gross reward per unit of stake, `reward_i / s_i = P / S`. Individual stake size cancels out. Writing a juror's evidence spend as a fraction of its stake, `x_i = α_i · s_i`:
+Every correct juror earns exactly `R` in gross reward per unit of its own stake. Substituting `x_i = α_i · s_i`:
 
 ```
-return_i = (P·s_i/S − α_i·s_i) / (s_i + α_i·s_i) = (P/S − α_i) / (1 + α_i)
+return_i = (R·s_i − α_i·s_i) / (s_i + α_i·s_i) = (R − α_i) / (1 + α_i)
 ```
 
-`s_i` cancels. Among correct jurors, return depends only on the pool ratio, which all of them share, and on the juror's own spend efficiency `α_i`. It does not depend on how much the juror staked. Every incorrect juror's return is exactly −100%, again regardless of stake.
+`R` is the same for every correct juror in the case, so return depends only on `α_i`. Two correct jurors with the same spend-to-stake ratio get identical returns however much each staked. Two with different spending discipline relative to their own stake get different returns, as they should.
+
+**Stake size alone never buys a better return. Spending discipline relative to your own conviction does affect it, and that is the intended incentive, not a flaw.** Every incorrect juror's return is exactly −100%.
 
 ### Worked example
 
 A case with a 20 HBAR bounty. Juror A stakes 50, spends 5 on evidence, and rules correctly. Juror B stakes 10, spends 1, and rules correctly. Juror C stakes 30, rules incorrectly, and is slashed.
 
 ```
-P = 20 + 30 = 50        S = 50 + 10 = 60        P/S = 5/6
+P = 20 + 30 = 50        S = 50 + 10 = 60        R = P/S = 5/6
 
 A: reward = 50 · 50/60 = 41.67    net = 41.67 − 5 = 36.67    capital = 55    return = 66.67%
 B: reward = 50 · 10/60 =  8.33    net =  8.33 − 1 =  7.33    capital = 11    return = 66.67%
 C: slashed 30                     net = −30 − x_C                           return = −100%
 ```
 
-Both correct jurors spent 10% of their stake on evidence (α = 0.1), so the formula gives `(5/6 − 1/10) / 1.1 = 2/3` for both. A staked five times more than B and earned exactly the same return.
+Both correct jurors spent 10% of their stake on evidence (α = 0.1), so the formula gives `(5/6 − 1/10) / 1.1 = 2/3` for both. A staked five times more than B and earned exactly the same return, because both kept the same spend-to-stake ratio.
+
+**On-chain, in tinybars.** Payouts round down: A receives 4,166,666,666 tinybars and B receives 833,333,333. That leaves 1 tinybar of the 5,000,000,000-tinybar pool, which goes to the Case Bounty Treasury. To check the identity without any rounding, tests cross-multiply instead of comparing rounded percentages: `(P·s_A − x_A·S)·(s_B + x_B) = (P·s_B − x_B·S)·(s_A + x_A)`. Here that is (2500 − 300) × 11 = (500 − 60) × 55 = 24,200.
 
 ### Shareholder skim
 
@@ -132,7 +144,7 @@ A: net 36.67 → skim 7.33 to holders, keeps 29.33    29.33 / 55 = 53.33%
 B: net  7.33 → skim 1.47 to holders, keeps  5.87     5.87 / 11 = 53.33%
 ```
 
-A flat-percentage skim scales every winning juror's retained return by the same factor of 0.8, so it does not reopen the wealth-neutrality result.
+A flat-percentage skim scales every winning juror's retained return by the same factor of 0.8, so it leaves the comparison between jurors unchanged.
 
 The skim is a capital-distribution rule layered on top of performance tracking. It must not distort the track record. **The juror's track record is built from pre-skim figures.** Each case contributes its pre-skim net profit and capital deployed (for A here, 36.67 on 55, a 66.67% return), never the post-skim treasury credit.
 
@@ -140,13 +152,13 @@ The tradeoff: the skim slows a juror's own treasury compounding after a win. In 
 
 ### What the mechanism does not do
 
-- **It does not verify stated confidence.** Scaling stake to confidence is an agent policy, a Kelly-criterion-style sizing choice each agent makes. The contract never checks that stated confidence was honest. It only guarantees that the payout math is wealth-neutral for whatever stake an agent picks.
-- **Evidence spend is not fully wealth-neutral.** The stake side cancels exactly, but x402 spend is subtracted as an absolute amount, and evidence costs roughly the same no matter how big a juror's treasury is. A richer juror sizing larger stakes at the same confidence has a smaller `α` for the same evidence spend, so its return is less sensitive to what it spends. The effect is small when evidence spend is small relative to stake. It grows as spend becomes a larger share of the capital deployed: if B in the example had spent 5 like A, B's return would be 22.2% instead of 66.67%. This is a known limitation, not something the mechanism eliminates.
+- **It does not verify stated confidence.** Scaling stake to confidence is an agent policy, a Kelly-criterion-style sizing choice each agent makes. The contract never checks that stated confidence was honest. It only guarantees that, at a given spend-to-stake ratio, the return is the same whatever stake an agent picks.
+- **It does not stop wealth reaching return through `α`.** `α` is measured against stake, and evidence costs roughly the same no matter how big a juror's treasury is. A richer juror that sizes larger stakes at the same confidence gets a smaller `α` for the same evidence, and so a higher return. This is the only path from wealth to return: through `α`, never through stake size directly. The effect is small when evidence spend is small relative to stake. It grows as spend becomes a larger share of the capital deployed: if B in the example had spent 5 like A, B's return would be 22.2% instead of 66.67%. This is a known limitation, not something the mechanism eliminates.
 
 ## Treasury and capital flows
 
 - **Share purchases split 70/30.** 70% of every share purchase goes into the juror's operating treasury and 30% stays in the curve reserve for redemptions. This is deliberately biased toward keeping agents funded to do their job, over perfect exit liquidity for sellers. Redemptions are limited to what the reserve holds.
-- **The resolver custodies each juror's treasury.** The juror's key can lock treasury funds as stake freely. x402 payments leave through a capped, rate-limited withdrawal path to the juror's hot wallet. Every withdrawal is tagged with a case id, and the withdrawn amount counts as that case's x402 spend. That keeps spend on-chain rather than self-reported, which matters because under-reporting spend would inflate the return the share price tracks. This withdrawal path is a documented trust leak, not a solved problem: see limitations.
+- **The resolver custodies each juror's treasury.** The juror's key can lock treasury funds as stake freely. x402 payments leave through a capped, rate-limited withdrawal path to the juror's hot wallet. Every withdrawal is tagged with a case id at withdrawal time, and the withdrawn amount counts as that case's x402 spend. Settlement reads spend only from this tagged history, and the reveal has no spend field. That keeps spend on-chain rather than self-reported, which matters because under-reporting spend would inflate the return the share price tracks. This withdrawal path is a documented trust leak, not a solved problem: see limitations.
 - **Genesis is equal.** All three jurors start with the same treasury. Unequal starting capital would make the demo show differentiation by wealth rather than by skill.
 - **The share price tracks cumulative return.** The bonding curve reads the juror's return since genesis, computed as total pre-skim net profit across all its settled cases divided by total capital deployed (stake plus x402 spend) across those cases.
   - **Not a plain mean of per-case percentages.** A plain mean would let a large percentage swing on a tiny stake count as much as a case where real capital was at risk. Winning 200% on a 1 HBAR stake and then losing 100% on a 100 HBAR stake averages to +50%. The capital-weighted figure is (2 − 100) / 101 ≈ −97%, which is what actually happened to the money.
@@ -228,6 +240,7 @@ case opens with a bounty
   -> each juror commits hash + confidence-scaled stake on Hedera
   -> commit deadline passes; jurors reveal
   -> resolution time: operator runs the checker, pins evidence to IPFS, submits outcome + CID
+     (if no outcome arrives within the 24h grace period: anyone cancels, stakes refunded in full, bounty to its source)
   -> settle: wrong jurors slashed, pool split by stake among correct jurors
   -> net profit and return recorded; 20% of positive net skimmed to holders via ATS mass payout
   -> share prices move on the updated return
@@ -245,7 +258,7 @@ case opens with a bounty
 | Runaway agent loop | x402 spend has no per-case cap, by design. A buggy loop is bounded only by the withdrawal rate limit |
 | Wash trading through fresh addresses | The compliance control blocks a juror's known key and hot wallet from holding its shares. It cannot stop funds forwarded to a fresh address while the ATS identity gate stays permissive for the demo |
 | Stated confidence is not verified | Confidence-scaled staking is an agent policy. The contract does not enforce it |
-| Evidence spend is not fully wealth-neutral | See "What the mechanism does not do" above |
+| Wealth reaches return through `α` | A bigger stake dilutes the same evidence spend. See "What the mechanism does not do" above |
 | Correlated model failure | All three jurors run Nemotron. Differentiation comes from prompts and tool preferences |
 | Free-tier model availability | Tool-calling support and rate limits on OpenRouter's free Nemotron endpoint must be confirmed before the agent loop depends on them |
 | Exit liquidity | Only 30% of purchases stay in the redemption reserve. A rush of sellers can exceed it |
