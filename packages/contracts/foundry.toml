@@ -6,6 +6,9 @@ solc = "0.8.30"
 # Pinned below solc's default (prague) so one bytecode runs on both chains; Hedera testnet verified with HederaSmoke (MCOPY executed).
 evm_version = "cancun"
 
+[lint]
+ignore = ["test/**/*.sol"]
+
 [rpc_endpoints]
 hedera = "${HEDERA_RPC_URL}"
 sepolia = "${SEPOLIA_RPC_URL}"
