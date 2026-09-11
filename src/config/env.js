@@ -32,6 +32,9 @@ module.exports = {
   // NewsData.io: 200 requests/day free tier
   NEWSDATA_API_KEY: process.env.NEWSDATA_API_KEY,
 
+  // Temporary x402 payment adapter. Replace with the Hedera gateway later.
+  DUMMY_X402_COST_HBAR: process.env.DUMMY_X402_COST_HBAR || '0.01',
+
   // Legacy APIs (for price checks, etc.)
   COINGECKO_API_URL: 'https://api.coingecko.com/api/v3',
 };

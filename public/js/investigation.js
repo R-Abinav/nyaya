@@ -105,7 +105,7 @@ function renderTools(toolCalls = []) {
     <li>
       <strong>${escapeHtml(toolCall.toolName)}</strong>
       <span>${escapeHtml(JSON.stringify(toolCall.args))}</span>
-      <small>${Number(toolCall.cost || 0).toFixed(2)} HBAR</small>
+      <small>${Number(toolCall.cost || 0).toFixed(2)} HBAR · ${escapeHtml(toolCall.paymentStatus || 'payment status unavailable')}</small>
     </li>
   `).join('');
 }

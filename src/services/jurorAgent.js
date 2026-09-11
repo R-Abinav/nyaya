@@ -55,33 +55,34 @@ async function sendLLMRequest(messages, tools) {
 /**
  * Execute a tool call
  *
- * Calls the real evidence service with live data from free public APIs.
- * In production, this would also:
- * - Withdraw x402 payment from juror treasury
- * - Pay the Evidence Gateway
- * - Log payment on-chain
+ * Approves a temporary x402 payment before calling the live evidence service.
+ * The payment adapter is intentionally marked dummy until the Hedera contract
+ * and gateway API are available.
  */
 async function executeToolCall(toolCall, caseId, jurorId) {
   const { executeEvidenceTool } = require('./evidenceService');
+  const { approveEvidencePayment } = require('./x402Gateway');
 
   const toolName = toolCall.function.name;
   const args = JSON.parse(toolCall.function.arguments || '{}');
+  let payment;
 
   console.log(`[${jurorId}] Executing tool: ${toolName}`, args);
 
   try {
-    // Call real evidence service
-    const result = await executeEvidenceTool(toolName, args);
+    payment = await approveEvidencePayment({ caseId, jurorId, toolName });
+    if (!payment.approved) {
+      throw new Error('Evidence payment was not approved');
+    }
 
-    // TODO: Wire real x402 payments before treating evidence as paid.
-    // const payment = await withdrawFromTreasury(jurorId, caseId, TOOL_COST);
-    // const settlement = await payEvidenceGateway(toolName, payment);
+    const result = await executeEvidenceTool(toolName, args);
 
     return {
       toolName,
       args,
-      cost: 0,
-      paymentStatus: 'not_settled',
+      cost: payment.amount,
+      paymentStatus: 'approved_dummy',
+      payment,
       result,
     };
   } catch (error) {
@@ -91,7 +92,14 @@ async function executeToolCall(toolCall, caseId, jurorId) {
     return {
       toolName,
       args,
-      cost: 0,
+      cost: payment?.amount || 0,
+      paymentStatus: payment?.approved ? 'approved_dummy_evidence_failed' : 'rejected',
+      payment: payment || {
+        approved: false,
+        mode: 'dummy',
+        error: error.message,
+        rejectedAt: new Date().toISOString(),
+      },
       result: {
         error: error.message,
         timestamp: new Date().toISOString(),
@@ -166,8 +174,20 @@ The betting fraction is the fraction of your maximum stake allocation you choose
     },
   ];
 
-  let response = await sendLLMRequest(messages, tools);
-  let assistantMessage = response.choices[0].message;
+  let response;
+  let assistantMessage;
+
+  try {
+    response = await sendLLMRequest(messages, tools);
+    assistantMessage = response.choices[0].message;
+  } catch (error) {
+    if (evidenceTrail.totalSpent === 0) {
+      throw error;
+    }
+
+    console.error(`[ALERT][SpentWithoutRuling] ${jurorId} could not get an initial ruling after spending ${evidenceTrail.totalSpent} HBAR: ${error.message}`);
+    assistantMessage = fallbackRuling(error);
+  }
 
   // Tool calling loop - no hard cap, agent decides when to stop
   let iteration = 0;
@@ -197,8 +217,26 @@ The betting fraction is the fraction of your maximum stake allocation you choose
 
     // Ask agent to continue or make final ruling
     console.log(`[${juror.name}] Asking for next decision...`);
-    response = await sendLLMRequest(messages, tools);
-    assistantMessage = response.choices[0].message;
+    try {
+      response = await sendLLMRequest(messages, tools);
+      assistantMessage = response.choices[0].message;
+    } catch (error) {
+      console.error(`[ALERT][SpentWithoutRuling] ${jurorId} could not continue after spending ${evidenceTrail.totalSpent} HBAR: ${error.message}`);
+      assistantMessage = fallbackRuling(error);
+      break;
+    }
+  }
+
+  function fallbackRuling(error) {
+    return {
+      role: 'assistant',
+      content: [
+        'Verdict: no',
+        'Betting Fraction: 0.0',
+        `Reasoning: Evidence was gathered, but the ruling model failed before completing its analysis (${error.message}).`,
+        'Stop Reason: Further evidence is not justified after the model failure.',
+      ].join('\n'),
+    };
   }
 
   if (iteration >= MAX_ITERATIONS) {

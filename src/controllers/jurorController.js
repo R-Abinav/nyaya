@@ -58,7 +58,7 @@ async function investigateWithAllJurors(req, res) {
         salt
       );
 
-      return {
+      const result = {
         jurorId: investigation.jurorId,
         jurorName: investigation.jurorName,
         verdict: investigation.verdict,
@@ -71,6 +71,13 @@ async function investigateWithAllJurors(req, res) {
         analysis: investigation.evidenceTrail.finalAnalysis,
         evidenceTrail: investigation.evidenceTrail,
       };
+
+      if (result.totalSpent > 0 && !result.commitment) {
+        console.error(`[ALERT][SpentWithoutCommitting] ${result.jurorId} spent ${result.totalSpent} HBAR for case ${useCaseId} without a commitment`);
+        throw new Error(`Invariant violation: ${result.jurorId} spent evidence funds without a commitment`);
+      }
+
+      return result;
     });
 
     console.log('\n' + '='.repeat(80));
