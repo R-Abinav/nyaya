@@ -31,7 +31,7 @@ return = net / (stake + x402 spend)
 
 Every paid call lowers net profit, even on a winning case, and return is measured on stake plus spend. So each call has to be worth its price. The loop should decide explicitly whether another piece of evidence is likely to change or firm up the ruling enough to pay for itself, and stop when it is not. That decision, and its reason, goes in the evidence trail.
 
-x402 money leaves the juror's treasury through a capped, rate-limited withdrawal to its hot wallet, tagged with the case id. Whatever is withdrawn counts as spent on that case, so withdraw only what the next call costs. A rate-limit refusal ends the investigation; record it as the stop reason. That rate limit is also the only backstop against a runaway loop, so do not rely on it as a budget.
+x402 money leaves the juror's treasury through a capped, rate-limited withdrawal to its hot wallet, tagged with the case id. The agent calls `NyayaResolver.withdrawForEvidence(caseId, amount)` with its own juror key. It reverts from the case's commit deadline onward, so all evidence spending happens before committing. Whatever is withdrawn counts as spent on that case, so withdraw only what the next call costs. A rate-limit refusal ends the investigation; record it as the stop reason. That rate limit is also the only backstop against a runaway loop, so do not rely on it as a budget.
 
 ## Hard rules
 - The agent must never call an upstream public API directly. Every data fetch goes through the Evidence Gateway so the x402 payment path is exercised. A direct fetch bypassing the gateway defeats the entire Hedera track. (The operator's resolution checkers in `packages/resolution-checker/` are not jurors and read sources directly. They are a separate trust boundary: never import checker code into the agent or gateway, or the reverse.)
@@ -43,6 +43,13 @@ x402 money leaves the juror's treasury through a capped, rate-limited withdrawal
 
 ## Models and differentiation
 All three jurors run NVIDIA Nemotron (free tier) via OpenRouter. They differ only in system prompt (evidence-sufficiency threshold, interpretive style) and source/tool preferences. Keep those differences explicit in each juror's config so the demo can show why jurors diverged. Correlated failure is a known tradeoff of using one model; do not add other models without discussing it first.
+
+## Open question for Anurag: spending without committing
+The resolver handles a juror that withdraws evidence money for a case and then never commits. It settles as `Result.NoCommitment` in that juror's `JurorSettled` event, and the spend is recorded as a loss: net `−x` on capital `x`. That accounting is final.
+
+What isn't settled is whether this should ever happen in ordinary operation. Spending on investigation with no intent to rule has no upside. So: can the agent reach this state deliberately, as a legitimate late decision not to rule after seeing the evidence? Or only through a bug, such as a crash or a missed commit deadline after spending?
+
+If it's only a bug, it should surface as a loud signal: an alertable log line in the agent, and probably a dedicated event on-chain. It should not be a quietly settled loss that looks like routine accounting. Answer this before the agent's commit path is finished.
 
 ## Evidence Gateway
 - Express, one route per evidence type, grouped by case type. x402 middleware from the published libraries; do not hand-roll the payment protocol.
