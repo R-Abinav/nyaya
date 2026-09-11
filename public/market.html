@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nyaya — Prediction Market</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="stylesheet" href="/css/market.css" />
+</head>
+<body>
+  <header>
+    <div class="logo">⚖ Nyaya</div>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/market.html" class="active">Market</a>
+      <a href="/investigation.html">Investigations</a>
+      <a href="/jurors.html">Jurors</a>
+    </nav>
+  </header>
+
+  <main class="market-page">
+    <section class="market-heading">
+      <div>
+        <p class="eyebrow">AI juror prediction market</p>
+        <h1>Choose an outcome</h1>
+        <p class="subtitle">Review live multi-option predictions and place a bet after payment approval.</p>
+      </div>
+      <button id="refresh-btn" class="secondary-button" type="button">Refresh</button>
+    </section>
+
+    <div id="market-message" class="message" role="status"></div>
+    <section id="prediction-list" class="prediction-grid" aria-live="polite"></section>
+
+    <section class="history-section">
+      <div class="section-heading">
+        <h2>Past bets</h2>
+        <button id="history-refresh-btn" class="secondary-button" type="button">Refresh history</button>
+      </div>
+      <div id="bet-history" class="history-list"></div>
+    </section>
+
+    <details class="admin-panel">
+      <summary>Admin: manage predictions</summary>
+      <form id="admin-form">
+        <label>
+          Admin key
+          <input id="admin-key" name="adminKey" type="password" autocomplete="off" required />
+        </label>
+        <label>
+          Statement
+          <textarea id="admin-statement" name="statement" rows="2" required></textarea>
+        </label>
+        <label>
+          Options (one per line, minimum 3)
+          <textarea id="admin-options" name="options" rows="5" required></textarea>
+        </label>
+        <label>
+          Expires at
+          <input id="admin-expires" name="expiresAt" type="datetime-local" required />
+        </label>
+        <button class="primary-button" type="submit">Add prediction</button>
+      </form>
+    </details>
+  </main>
+
+  <footer>Nyaya — AI-powered prediction market on Hedera</footer>
+  <script src="/js/market.js"></script>
+</body>
+</html>
