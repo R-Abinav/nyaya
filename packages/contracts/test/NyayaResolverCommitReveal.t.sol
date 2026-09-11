@@ -32,7 +32,7 @@ contract NyayaResolverCommitRevealTest is Test {
 
     function setUp() public {
         treasury = new JurorTreasury(operator, 10 ether, 1 hours);
-        resolver = new NyayaResolver(treasury);
+        resolver = new NyayaResolver(treasury, operator);
 
         vm.startPrank(operator);
         treasury.setResolver(address(resolver));
