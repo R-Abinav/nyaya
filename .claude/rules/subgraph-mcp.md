@@ -16,6 +16,7 @@ paths:
 
 ## MCP server
 - The tools must do reasoning over juror history, not print raw query results. "Is juror 3 trustworthy" should return a judgement grounded in indexed numbers, with the numbers shown. A track that rewards AI use cases explicitly excludes raw query dumps.
+- When explaining a juror's record, keep the two loss causes separate: lost from an incorrect ruling versus lost from a cancelled case (spend gone, stake refunded, an operator failure). They count the same in the return but must never be described as the same thing.
 - Useful reasoning axes: return on capital over time, spend efficiency (x402 spend relative to stake), whether stated confidence matched outcomes, and performance per case type.
 - Be precise about the mechanism. It is a stake-weighted parimutuel and nothing stronger, and case outcomes are reported by the operator. Never describe either differently.
 - Ship a clear README or SKILL.md so a judge can run it. This is a stated qualification requirement.
