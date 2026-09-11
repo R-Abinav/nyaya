@@ -6,7 +6,8 @@ paths:
 # Contract rules
 
 ## Layout
-- `src/jury/` — the resolver: juror registry, treasury custody, case lifecycle, commit-reveal, settlement, x402 withdrawal path.
+- `src/jury/JurorTreasury.sol` — juror registry and custody of each juror's HBAR. Only the resolver can move money out.
+- `src/jury/` (resolver) — case lifecycle, commit-reveal, settlement, the Case Bounty Treasury, and the only caller of the treasury's drawdown functions.
 - `src/shares/` — ATS juror share tokens, the bonding curve that reads recorded return, the 70/30 purchase split, mass payout of the skim.
 - `src/anchor/` — Sepolia only. Mirrors finalised results for indexing.
 - `test/` for forge tests, `script/` for deploy scripts.
@@ -40,7 +41,7 @@ Nothing is vendored. All contract code here is ours.
   - The juror is not a parameter. The contract recomputes the commitment with `msg.sender` as `juror`, which is what makes a copied commitment fail.
   - The `confidence` in the commitment is this `uint16 confidenceBps`. `abi.encode` pads every field by type, so the agent must hash the same five fields in the same order with the same types.
   - `evidenceCid` is a `string` because Pinata's CIDs don't fit cleanly into `bytes32` without an encoding step on both the write side and the read side. A `string` avoids that entirely. Reveal is a low-frequency, write-once call, so the gas saved by `bytes32` isn't worth two codebases having to agree on a byte format.
-- **Confidence-scaled stake, locked at commit.** Stake is taken from the juror's treasury, which the resolver custodies. The contract records stated confidence but does not verify it. Scaling stake to confidence is agent policy.
+- **Confidence-scaled stake, locked at commit.** Stake is locked in the juror's `JurorTreasury` balance by the resolver when the juror commits. The contract records stated confidence but does not verify it. Scaling stake to confidence is agent policy.
 - **Outcome submission.** Only the operator submits a case outcome, only inside the window defined under "Grace boundary" below, and always with the IPFS CID of the resolution checker's raw evidence. Only the CID goes on-chain, never the evidence itself. This is the only off-chain input to settlement. Never add another.
 - **Grace boundary.** `graceEnd = resolutionTime + 24 hours`. `submitOutcome` requires `resolutionTime <= block.timestamp < graceEnd`. From `graceEnd` onward it reverts unconditionally, including for the operator. Cancellation requires `block.timestamp >= graceEnd` and no outcome submitted. Using one boundary for both means there is no overlap, so a late submission and a cancellation can never race, and no gap in which neither path is open.
 - **Cancellation.** Anyone can cancel, not just the operator. Cancellation refunds every committed juror's full stake, whether or not it revealed, and returns the bounty to its recorded source. Keep this a separate code path from the non-reveal forfeit. A non-reveal is a juror's choice and forfeits the stake; a missing outcome is a platform failure and refunds it.
@@ -55,6 +56,12 @@ Nothing is vendored. All contract code here is ours.
   - Skim: 20% of positive net goes to the juror's shareholders via ATS mass payout, and 80% is credited to the juror's treasury. No skim on negative net.
   - No correct jurors: return the bounty to its source (the external opener, or the Case Bounty Treasury) and roll slashed stakes into the next case's pool.
   - Rounding: every payout is rounded down to the tinybar. Whatever is left of the pool after paying correct jurors goes to the Case Bounty Treasury, never to an individual juror. The skim is `floor(net × 20 / 100)` and the treasury credit is `net − skim`, so the skim leaves no remainder.
+- **Treasury drawdown paths.** `JurorTreasury` has exactly three ways money leaves a juror's balance, all resolver-only:
+  - `lockStake`
+  - `slashStake`, which sends the stake to the resolver and never back to the juror
+  - `withdrawForX402`
+
+  `unlockStake` returns a locked stake to the juror. Funding (`fund`) is open to anyone. Never add a juror-callable withdrawal. The withdrawal cap and window are constructor values set at deploy.
 - **x402 withdrawal path.** A capped, rate-limited withdrawal from a juror's treasury to its hot wallet, tagged with a case id at withdrawal time. The withdrawn amount counts as that case's `x402Spend`, and this is the only source settlement uses for spend. This is a documented trust leak: the contract cannot verify where the money went after it leaves.
 
 ## Share rules
