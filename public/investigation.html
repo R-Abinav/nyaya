@@ -24,32 +24,13 @@
     <!-- Case Input Form -->
     <div class="investigation-form">
       <div class="form-group">
-        <label for="case-type">Case Type</label>
-        <select id="case-type">
-          <option value="rocket-launch">🚀 Rocket Launch</option>
-          <option value="flight-delay">✈️ Flight Delay</option>
-          <option value="github-stars">⭐ GitHub Stars</option>
-        </select>
-      </div>
-
-      <div class="form-group">
         <label for="case-question">Question</label>
         <input
           id="case-question"
           type="text"
-          placeholder="Will there be a significant delay in the next major rocket launch?"
+          placeholder="Will artificial intelligence regulation become stricter this year?"
         />
-        <small>Ask any general question. Jurors will search for news and use case-specific tools if relevant identifiers are provided.</small>
-      </div>
-
-      <div class="form-group">
-        <label for="case-id">Case ID (optional, for specific tools)</label>
-        <input
-          id="case-id"
-          type="text"
-          placeholder="e.g., launch ID, flight ICAO, or repo owner/name"
-        />
-        <small>Leave blank to rely on news search only</small>
+        <small>Ask any objectively checkable question. Each juror will independently search recent NewsData.io articles for evidence.</small>
       </div>
 
       <button id="investigate-btn" onclick="startInvestigation()">
@@ -65,16 +46,8 @@
       </div>
       <div class="status-details">
         <div class="status-row">
-          <span class="label">Case ID:</span>
-          <span id="status-case-id">-</span>
-        </div>
-        <div class="status-row">
           <span class="label">Question:</span>
           <span id="status-question">-</span>
-        </div>
-        <div class="status-row">
-          <span class="label">Case Type:</span>
-          <span id="status-type">-</span>
         </div>
         <div class="status-row">
           <span class="label">Commit Deadline:</span>
@@ -99,8 +72,8 @@
           <div class="stat-label">Verdict Split</div>
         </div>
         <div class="summary-stat">
-          <div class="stat-value" id="avg-confidence">-</div>
-          <div class="stat-label">Avg Confidence</div>
+          <div class="stat-value" id="avg-betting-fraction">-</div>
+          <div class="stat-label">Avg Bet Fraction</div>
         </div>
         <div class="summary-stat">
           <div class="stat-value" id="total-spend">-</div>
@@ -116,27 +89,7 @@
       <div id="juror-results" class="juror-results"></div>
     </div>
 
-    <!-- Example Cases -->
-    <div class="example-cases">
-      <h3>Example Cases</h3>
-      <div class="example-grid">
-        <button class="example-card" onclick="loadExample('rocket')">
-          <div class="example-icon">🚀</div>
-          <div class="example-title">Rocket Launch</div>
-          <div class="example-desc">SpaceX Falcon 9 launch timing</div>
-        </button>
-        <button class="example-card" onclick="loadExample('flight')">
-          <div class="example-icon">✈️</div>
-          <div class="example-title">Flight Delay</div>
-          <div class="example-desc">Aircraft arrival timing prediction</div>
-        </button>
-        <button class="example-card" onclick="loadExample('github')">
-          <div class="example-icon">⭐</div>
-          <div class="example-title">GitHub Stars</div>
-          <div class="example-desc">Repository star threshold prediction</div>
-        </button>
-      </div>
-    </div>
+    <p class="news-note">Evidence source: NewsData.io latest news. Fixed API flags keep image and video payloads disabled and remove duplicates.</p>
   </main>
 
   <footer>Nyaya — AI-powered juror market on Hedera</footer>

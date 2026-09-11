@@ -6,21 +6,20 @@ const { getAllJurorIds, getJuror } = require('../config/jurors');
  */
 async function investigateWithAllJurors(req, res) {
   try {
-    const { question, caseType, caseId } = req.body;
+    const { question } = req.body;
 
-    if (!question || !caseType) {
+    if (!question || typeof question !== 'string' || !question.trim()) {
       return res.status(400).json({
-        error: 'Missing required fields: question, caseType',
+        error: 'Missing required field: question',
       });
     }
 
-    const useCaseId = caseId || `case_${Date.now()}`;
+    const useCaseId = `case_${Date.now()}`;
     const commitDeadline = new Date(Date.now() + 3600000).toISOString(); // 1 hour from now
 
     const caseData = {
       caseId: useCaseId,
-      question,
-      caseType,
+      question: question.trim(),
       commitDeadline,
     };
 
@@ -29,7 +28,6 @@ async function investigateWithAllJurors(req, res) {
     console.log('='.repeat(80));
     console.log(`Case ID: ${useCaseId}`);
     console.log(`Question: ${question}`);
-    console.log(`Case Type: ${caseType}`);
     console.log(`Commit Deadline: ${commitDeadline}`);
     console.log('='.repeat(80));
 
@@ -41,21 +39,22 @@ async function investigateWithAllJurors(req, res) {
 
     // Generate commitments for each juror
     const results = investigations.map(investigation => {
-      const juror = getJuror(investigation.jurorId);
+      getJuror(investigation.jurorId);
       const salt = generateSalt();
 
       // TODO: Get real juror addresses from Hedera
       const jurorAddress = `0x${investigation.jurorId.padEnd(40, '0')}`;
 
-      // Calculate stake based on confidence
+      // Calculate stake based on betting fraction
       const treasuryBalance = 1000; // TODO: Read from contract
-      const stake = calculateStake(investigation.confidence, treasuryBalance);
+      const stake = calculateStake(investigation.bettingFraction, treasuryBalance);
 
       const commitment = generateCommitment(
         useCaseId,
         jurorAddress,
         investigation.verdict,
-        investigation.confidence,
+        // Convert betting fraction to percentage for commitment (backward compatibility)
+        (investigation.bettingFraction * 100).toFixed(1),
         salt
       );
 
@@ -63,15 +62,14 @@ async function investigateWithAllJurors(req, res) {
         jurorId: investigation.jurorId,
         jurorName: investigation.jurorName,
         verdict: investigation.verdict,
-        confidence: investigation.confidence,
+        bettingFraction: investigation.bettingFraction,
         stake,
         totalSpent: investigation.totalSpent,
         toolCallCount: investigation.evidenceTrail.toolCalls.length,
         commitment,
-        // In production, salt must be persisted durably before committing
-        // For demo purposes, we include it in the response
-        salt: salt,
+        saltStatus: 'generated_not_returned',
         analysis: investigation.evidenceTrail.finalAnalysis,
+        evidenceTrail: investigation.evidenceTrail,
       };
     });
 
@@ -82,7 +80,7 @@ async function investigateWithAllJurors(req, res) {
     results.forEach(result => {
       console.log(`\n${result.jurorName}:`);
       console.log(`  Verdict: ${result.verdict}`);
-      console.log(`  Confidence: ${result.confidence}%`);
+      console.log(`  Betting fraction: ${(result.bettingFraction * 100).toFixed(1)}% of treasury risked`);
       console.log(`  Stake: ${result.stake.toFixed(2)} HBAR`);
       console.log(`  Evidence Spend: ${result.totalSpent.toFixed(2)} HBAR`);
       console.log(`  Tool Calls: ${result.toolCallCount}`);
@@ -93,8 +91,7 @@ async function investigateWithAllJurors(req, res) {
 
     res.json({
       caseId: useCaseId,
-      question,
-      caseType,
+      question: question.trim(),
       commitDeadline,
       jurors: results,
       summary: {
@@ -103,7 +100,7 @@ async function investigateWithAllJurors(req, res) {
           yes: results.filter(r => r.verdict === 'yes').length,
           no: results.filter(r => r.verdict === 'no').length,
         },
-        averageConfidence: (results.reduce((sum, r) => sum + r.confidence, 0) / results.length).toFixed(1),
+        averageBettingFraction: (results.reduce((sum, r) => sum + r.bettingFraction, 0) / results.length).toFixed(3),
         totalToolCalls: results.reduce((sum, r) => sum + r.toolCallCount, 0),
         totalSpent: results.reduce((sum, r) => sum + r.totalSpent, 0).toFixed(2),
       },
@@ -129,7 +126,7 @@ function getJurorInfo(req, res) {
       name: juror.name,
       ensName: juror.ensName,
       toolPreferences: juror.toolPreferences,
-      confidenceThresholds: juror.confidenceThresholds,
+      bettingFractionThresholds: juror.bettingFractionThresholds,
     };
   });
 
@@ -153,7 +150,7 @@ function getJurorDetails(req, res) {
       ensName: juror.ensName,
       systemPrompt: juror.systemPrompt,
       toolPreferences: juror.toolPreferences,
-      confidenceThresholds: juror.confidenceThresholds,
+      bettingFractionThresholds: juror.bettingFractionThresholds,
     });
   } catch (error) {
     res.status(404).json({ error: error.message });

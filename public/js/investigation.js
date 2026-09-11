@@ -1,79 +1,75 @@
 // Frontend logic for the investigation dashboard
 
-const EXAMPLES = {
-  rocket: {
-    type: 'rocket-launch',
-    question: 'Will there be a significant delay in the next major rocket launch?',
-    id: ''
-  },
-  flight: {
-    type: 'flight-delay',
-    question: 'Will there be a significant delay in the next major flight?',
-    id: ''
-  },
-  github: {
-    type: 'github-stars',
-    question: 'Will a popular open-source project gain significant stars in the next month?',
-    id: ''
-  }
-};
+const JURORS = [
+  { id: 'skeptic', name: 'The Skeptic', icon: '🕵️' },
+  { id: 'pragmatist', name: 'The Pragmatist', icon: '⚖️' },
+  { id: 'maverick', name: 'The Maverick', icon: '🚀' },
+];
 
-function loadExample(type) {
-  const example = EXAMPLES[type];
-  if (!example) return;
+function escapeHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
-  document.getElementById('case-type').value = example.type;
-  document.getElementById('case-question').value = example.question;
-  document.getElementById('case-id').value = example.id;
+function formatAnalysis(value = '') {
+  return escapeHtml(value)
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/\n/g, '<br>');
+}
 
-  // Scroll to form
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+function renderInvestigationColumns() {
+  const progressContainer = document.getElementById('juror-progress');
+
+  progressContainer.innerHTML = JURORS.map(juror => `
+    <article class="juror-column" id="juror-${juror.id}">
+      <header class="juror-column-header">
+        <h3><span aria-hidden="true">${juror.icon}</span> ${juror.name}</h3>
+        <span class="juror-status status-investigating">Investigating</span>
+      </header>
+      <section class="juror-live-section">
+        <h4>Live Activity</h4>
+        <p class="live-activity"><span class="spinner" aria-hidden="true"></span> Preparing a news search...</p>
+      </section>
+      <section class="juror-live-section">
+        <h4>Tools Called</h4>
+        <ul class="tool-list"><li>Waiting for agent activity</li></ul>
+      </section>
+      <section class="juror-live-section">
+        <h4>Articles Read</h4>
+        <ul class="article-list"><li>Waiting for news evidence</li></ul>
+      </section>
+      <section class="juror-live-section">
+        <h4>Reasoning</h4>
+        <div class="reasoning-log">The agent is evaluating whether a paid news query is worth the expected improvement to its ruling.</div>
+      </section>
+    </article>
+  `).join('');
 }
 
 async function startInvestigation() {
   const questionInput = document.getElementById('case-question');
-  const typeSelect = document.getElementById('case-type');
-  const idInput = document.getElementById('case-id');
   const btn = document.getElementById('investigate-btn');
-
   const question = questionInput.value.trim();
-  const caseType = typeSelect.value;
-  const caseId = idInput.value.trim() || `case_${Date.now()}`;
 
   if (!question) {
     questionInput.focus();
     return;
   }
 
-  // Update UI state
   btn.disabled = true;
   btn.textContent = 'Allocating Jurors...';
 
-  // Hide results, show status
   document.getElementById('investigation-results').style.display = 'none';
   const statusContainer = document.getElementById('investigation-status');
   statusContainer.style.display = 'block';
-
-  // Initialize status info
-  document.getElementById('status-case-id').textContent = caseId;
   document.getElementById('status-question').textContent = question;
-  document.getElementById('status-type').textContent = caseType;
   document.getElementById('status-deadline').textContent = 'Calculating...';
-
-  // Set up mock progress animation for jurors
-  const jurorNames = ['The Skeptic', 'The Pragmatist', 'The Maverick'];
-  const progressContainer = document.getElementById('juror-progress');
-  progressContainer.innerHTML = jurorNames.map(name => `
-    <div class="juror-card">
-      <div class="juror-card-header">
-        <div class="juror-name">${name}</div>
-        <div class="juror-status status-investigating">Investigating</div>
-      </div>
-      <div class="juror-metrics">
-        <span><div class="spinner" style="width:12px;height:12px;border-width:2px;margin-right:5px"></div> Calling evidence tools...</span>
-      </div>
-    </div>
-  `).join('');
+  renderInvestigationColumns();
 
   try {
     btn.textContent = 'Investigation in Progress...';
@@ -81,108 +77,99 @@ async function startInvestigation() {
     const res = await fetch('/juror/investigate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, caseType, caseId }),
+      body: JSON.stringify({ question }),
     });
 
     const data = await res.json();
 
-    if (data.error) {
-      statusContainer.innerHTML = `<div style="color:#fb7185;padding:1rem;">Investigation failed: ${data.error}</div>`;
-      return;
+    if (!res.ok || data.error) {
+      throw new Error(data.error || `Investigation request failed (${res.status})`);
     }
 
+    document.getElementById('status-deadline').textContent = new Date(data.commitDeadline).toLocaleString();
     renderResults(data);
-
-  } catch (err) {
-    statusContainer.innerHTML = `<div style="color:#fb7185;padding:1rem;">Request failed: ${err.message}</div>`;
+  } catch (error) {
+    statusContainer.innerHTML = `<div class="request-error">Investigation failed: ${escapeHtml(error.message)}</div>`;
   } finally {
     btn.disabled = false;
     btn.textContent = 'Start New Investigation';
   }
 }
 
-function renderResults(data) {
-  // Hide status
-  document.getElementById('investigation-status').style.display = 'none';
+function renderTools(toolCalls = []) {
+  if (!toolCalls.length) {
+    return '<li>No paid evidence tools were called.</li>';
+  }
 
-  // Show and populate results
-  const resultsContainer = document.getElementById('investigation-results');
-  resultsContainer.style.display = 'block';
-
-  // Summary stats
-  document.getElementById('total-jurors').textContent = data.summary.totalJurors;
-  document.getElementById('verdict-split').textContent = `${data.summary.verdicts.yes} Y / ${data.summary.verdicts.no} N`;
-  document.getElementById('avg-confidence').textContent = `${data.summary.averageConfidence}%`;
-  document.getElementById('total-spend').textContent = data.summary.totalSpent;
-  document.getElementById('total-tools').textContent = data.summary.totalToolCalls;
-
-  // Juror details
-  const detailsContainer = document.getElementById('juror-results');
-  const icons = { skeptic: '🕵️', pragmatist: '⚖️', maverick: '🚀' };
-
-  detailsContainer.innerHTML = data.jurors.map(juror => {
-    const verdictClass = juror.verdict === 'yes' ? 'verdict-yes' : 'verdict-no';
-    const icon = icons[juror.jurorId] || '👤';
-
-    // Format analysis to convert markdown to basic HTML if needed
-    const formattedAnalysis = juror.analysis
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/\n\n/g, '<br><br>');
-
-    return `
-      <div class="juror-result-card">
-        <div class="juror-result-header">
-          <div class="juror-result-title">
-            <h3><span class="juror-icon">${icon}</span> ${juror.jurorName}</h3>
-            <span class="verdict-badge-large ${verdictClass}">${juror.verdict.toUpperCase()}</span>
-          </div>
-          <div class="juror-stats">
-            <div class="juror-stat">
-              <div class="juror-stat-value">${juror.confidence}%</div>
-              <div class="juror-stat-label">Confidence</div>
-            </div>
-            <div class="juror-stat">
-              <div class="juror-stat-value">${juror.stake.toFixed(2)}</div>
-              <div class="juror-stat-label">Stake (HBAR)</div>
-            </div>
-            <div class="juror-stat">
-              <div class="juror-stat-value">${juror.totalSpent.toFixed(2)}</div>
-              <div class="juror-stat-label">Evidence Spend</div>
-            </div>
-            <div class="juror-stat">
-              <div class="juror-stat-value">${juror.toolCallCount}</div>
-              <div class="juror-stat-label">Tool Calls</div>
-            </div>
-          </div>
-        </div>
-        <div class="juror-result-body">
-          <div class="analysis-section">
-            <h4>Analysis & Reasoning</h4>
-            <div class="analysis-text">${formattedAnalysis}</div>
-          </div>
-          <div class="commitment-info">
-            <div class="commitment-row">
-              <span class="commitment-label">Commit Hash:</span>
-              <span class="commitment-value">${juror.commitment}</span>
-            </div>
-            <div class="commitment-row">
-              <span class="commitment-label">Private Salt:</span>
-              <span class="commitment-value">${juror.salt}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
+  return toolCalls.map(toolCall => `
+    <li>
+      <strong>${escapeHtml(toolCall.toolName)}</strong>
+      <span>${escapeHtml(JSON.stringify(toolCall.args))}</span>
+      <small>${Number(toolCall.cost || 0).toFixed(2)} HBAR</small>
+    </li>
+  `).join('');
 }
 
-// Add enter key listener
+function renderArticles(toolCalls = []) {
+  const articles = toolCalls.flatMap(toolCall => toolCall.result?.articles || []);
+
+  if (!articles.length) {
+    return '<li>No articles were returned.</li>';
+  }
+
+  return articles.map(article => `
+    <li>
+      <a href="${escapeHtml(article.link)}" target="_blank" rel="noreferrer">${escapeHtml(article.title || 'Untitled article')}</a>
+      <p>${escapeHtml(article.description || 'No description available.')}</p>
+      <small>${escapeHtml([article.pub_data, article.time].filter(Boolean).join(' ') || 'Publication time unavailable')}</small>
+    </li>
+  `).join('');
+}
+
+function renderResults(data) {
+  const summary = data.summary;
+  document.getElementById('total-jurors').textContent = summary.totalJurors;
+  document.getElementById('verdict-split').textContent = `${summary.verdicts.yes} Y / ${summary.verdicts.no} N`;
+  document.getElementById('avg-betting-fraction').textContent = `${(Number(summary.averageBettingFraction) * 100).toFixed(1)}%`;
+  document.getElementById('total-spend').textContent = summary.totalSpent;
+  document.getElementById('total-tools').textContent = summary.totalToolCalls;
+
+  data.jurors.forEach(juror => {
+    const column = document.getElementById(`juror-${juror.jurorId}`);
+    if (!column) return;
+
+    const verdictClass = juror.verdict === 'yes' ? 'verdict-yes' : 'verdict-no';
+    const evidenceTrail = juror.evidenceTrail || {};
+    const status = column.querySelector('.juror-status');
+
+    status.textContent = 'Complete';
+    status.className = 'juror-status status-complete';
+    column.querySelector('.live-activity').innerHTML = `
+      <span class="verdict-badge-large ${verdictClass}">${escapeHtml(juror.verdict.toUpperCase())}</span>
+      <span>Bet fraction: <strong>${(juror.bettingFraction * 100).toFixed(1)}%</strong></span>
+    `;
+    column.querySelector('.tool-list').innerHTML = renderTools(evidenceTrail.toolCalls);
+    column.querySelector('.article-list').innerHTML = renderArticles(evidenceTrail.toolCalls);
+    column.querySelector('.reasoning-log').innerHTML = formatAnalysis(juror.analysis);
+
+    column.insertAdjacentHTML('beforeend', `
+      <section class="juror-result-summary">
+        <div><strong>${juror.stake.toFixed(2)} HBAR</strong><span>Stake</span></div>
+        <div><strong>${juror.totalSpent.toFixed(2)} HBAR</strong><span>Evidence spend</span></div>
+        <div><strong>${juror.toolCallCount}</strong><span>Tool calls</span></div>
+        <div class="commitment-value"><span>Commit hash</span><code>${escapeHtml(juror.commitment)}</code></div>
+      </section>
+    `);
+  });
+
+  document.getElementById('investigation-results').style.display = 'block';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const input = document.getElementById('case-question');
   if (input) {
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') startInvestigation();
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Enter') startInvestigation();
     });
   }
 });

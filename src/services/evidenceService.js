@@ -4,7 +4,7 @@ const {
   OPEN_METEO_API_URL,
   GITHUB_API_URL
 } = require('../config/env');
-const { searchContextualNews } = require('./newsService');
+const { searchNewsData } = require('./newsService');
 
 /**
  * Evidence Gateway Service
@@ -314,7 +314,7 @@ async function executeEvidenceTool(toolName, args) {
     get_repo_activity: getRepoActivity,
 
     // News tools (generic, available for all case types)
-    search_news: searchContextualNews,
+    search_news: searchNewsData,
   };
 
   const tool = tools[toolName];

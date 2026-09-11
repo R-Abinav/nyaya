@@ -9,7 +9,7 @@ const crypto = require('crypto');
  * - Investigate cases by calling evidence tools
  * - Track x402 spend per tool call
  * - Decide when evidence is sufficient vs too costly
- * - Generate commit-reveal commitments with confidence-scaled stakes
+ * - Generate commit-reveal commitments with fraction-scaled stakes
  * - Pin evidence trails to IPFS after commit deadline
  */
 
@@ -73,16 +73,15 @@ async function executeToolCall(toolCall, caseId, jurorId) {
     // Call real evidence service
     const result = await executeEvidenceTool(toolName, args);
 
-    // TODO: Wire real x402 payments
+    // TODO: Wire real x402 payments before treating evidence as paid.
     // const payment = await withdrawFromTreasury(jurorId, caseId, TOOL_COST);
     // const settlement = await payEvidenceGateway(toolName, payment);
-
-    const mockCost = 0.01; // HBAR per call
 
     return {
       toolName,
       args,
-      cost: mockCost,
+      cost: 0,
+      paymentStatus: 'not_settled',
       result,
     };
   } catch (error) {
@@ -108,12 +107,13 @@ async function executeToolCall(toolCall, caseId, jurorId) {
  * 1. Loads tools relevant to the case type
  * 2. Iteratively calls tools and evaluates evidence
  * 3. Decides when to stop (sufficient evidence OR not worth the cost)
- * 4. Forms a ruling with confidence
- * 5. Returns verdict, confidence, evidence trail, and total spend
+ * 4. Forms a ruling with betting fraction (what fraction of their stake to bet)
+ * 5. Returns verdict, betting fraction, evidence trail, and total spend
  */
 async function investigateCase(jurorId, caseData) {
   const juror = getJuror(jurorId);
-  const { caseId, question, caseType, commitDeadline } = caseData;
+  const { caseId, question, commitDeadline } = caseData;
+  const caseType = 'general-news';
 
   console.log(`\n[${juror.name}] Starting investigation of case ${caseId}`);
   console.log(`[${juror.name}] Question: ${question}`);
@@ -132,9 +132,8 @@ async function investigateCase(jurorId, caseData) {
     reasoning: [],
   };
 
-  // TODO: Load tools dynamically based on case type
-  // For now, use a mock tool set
-  const tools = getMockToolsForCaseType(caseType);
+  // General cases use only the NewsData.io search tool; no special identifier is needed.
+  const tools = getNewsTools();
 
   const messages = [
     {
@@ -155,13 +154,15 @@ Use the available evidence tools to investigate. After each tool call, explicitl
 Remember:
 - Each tool call costs money from your treasury
 - Your net profit = reward - total evidence spend (if correct) or -stake - spend (if incorrect)
-- Stop when you have sufficient confidence OR when more evidence won't improve your ruling enough to justify the cost
+- Stop when your ruling and profit-maximizing betting fraction are stable OR when more evidence won't improve them enough to justify the cost
 
-When ready to rule, provide:
-1. Your verdict (yes/no or other appropriate answer)
-2. Your confidence level (0-100%)
-3. Your reasoning for the verdict
-4. Your reasoning for stopping investigation at this point`,
+When ready to rule, use this exact format:
+Verdict: yes or no
+Betting Fraction: <number from 0.0 to 1.0>
+Reasoning: <why this ruling is more likely>
+Stop Reason: <why more paid news searches are not worth the expected profit improvement>
+
+The betting fraction is the fraction of your maximum stake allocation you choose to risk to maximize expected profit. It is not a confidence percentage. A poor NewsData query may return nothing, so choose q, qInTitle, and qInMeta keywords carefully and preserve the most important word order.`,
     },
   ];
 
@@ -214,31 +215,36 @@ When ready to rule, provide:
   console.log(`[${juror.name}] Total spent: ${evidenceTrail.totalSpent} HBAR`);
   console.log(`\n[${juror.name}] Final analysis:\n${assistantMessage.content}\n`);
 
-  // Parse verdict and confidence from final response
-  const { verdict, confidence } = parseVerdict(assistantMessage.content);
+  // Parse verdict and betting fraction from final response
+  const { verdict, bettingFraction } = parseVerdict(assistantMessage.content);
 
   return {
     jurorId,
     jurorName: juror.name,
     caseId,
     verdict,
-    confidence,
+    bettingFraction,
     evidenceTrail,
     totalSpent: evidenceTrail.totalSpent,
   };
 }
 
 /**
- * Parse verdict and confidence from agent's final response
+ * Parse verdict and betting fraction from agent's final response
  */
 function parseVerdict(content) {
   const lower = content.toLowerCase();
 
-  // Extract confidence
-  let confidence = 50; // default
-  const confidenceMatch = content.match(/confidence[:\s]+(\d+)%?/i);
-  if (confidenceMatch) {
-    confidence = parseInt(confidenceMatch[1]);
+  // Extract betting fraction (0.0 to 1.0)
+  let bettingFraction = 0.5; // default
+  const bettingFractionMatch = content.match(/betting fraction[:\s]+(\d+\.?\d*)/i) ||
+                               content.match(/fraction[:\s]+(\d+\.?\d*)/i) ||
+                               content.match(/bet[:\s]+(\d+\.?\d*)/i);
+  if (bettingFractionMatch) {
+    let fraction = parseFloat(bettingFractionMatch[1]);
+    // Ensure it's between 0 and 1
+    if (fraction > 1) fraction = fraction / 100; // Convert percentage to fraction if needed
+    bettingFraction = Math.max(0, Math.min(1, fraction)); // Clamp between 0 and 1
   }
 
   // Extract verdict
@@ -251,7 +257,7 @@ function parseVerdict(content) {
     verdict = 'yes';
   }
 
-  return { verdict, confidence };
+  return { verdict, bettingFraction };
 }
 
 /**
@@ -275,187 +281,42 @@ function generateSalt() {
 }
 
 /**
- * Calculate stake based on confidence (Kelly-style sizing)
+ * Calculate stake based on betting fraction (Kelly-style sizing)
  *
  * This is an agent policy, not enforced by contract.
- * Higher confidence = larger stake.
+ * Higher betting fraction = larger stake.
  */
-function calculateStake(confidence, treasuryBalance) {
-  // Simple linear scaling: stake = (confidence/100) * maxStake
+function calculateStake(bettingFraction, treasuryBalance) {
+  // Simple linear scaling: stake = bettingFraction * maxStake
   // where maxStake = 20% of treasury (conservative Kelly)
   const maxStakeFraction = 0.20;
-  const stake = (confidence / 100) * maxStakeFraction * treasuryBalance;
+  const stake = bettingFraction * maxStakeFraction * treasuryBalance;
   return Math.max(0.1, stake); // Minimum 0.1 HBAR
 }
 
 /**
- * Get tools for different case types
- * Loads from real evidence service API endpoints
+ * General juror investigations use only NewsData.io, so they do not need
+ * source-specific IDs such as launch IDs, ICAO transponders, or repo names.
  */
-function getMockToolsForCaseType(caseType) {
-  const toolsByType = {
-    'rocket-launch': [
-      {
-        type: 'function',
-        function: {
-          name: 'get_launch_status',
-          description: 'Get current status of a rocket launch from Launch Library 2 (thespacedevs.com). Returns launch name, status, window times, probability, hold/fail reasons, and pad information.',
-          parameters: {
-            type: 'object',
-            properties: {
-              launchId: {
-                type: 'string',
-                description: 'Launch ID from Launch Library 2 (e.g., "f4b6c4c0-42c4-4b9d-8c6f-4c9b9b9b9b9b")',
-              },
-            },
-            required: ['launchId'],
+function getNewsTools() {
+  return [
+    {
+      type: 'function',
+      function: {
+        name: 'search_news',
+        description: 'Search NewsData.io latest English news. Use exact, carefully ordered keywords. Only q, qInTitle, or qInMeta may be provided; image, video, removeduplicate, language, and all other URL parameters are fixed.',
+        parameters: {
+          type: 'object',
+          properties: {
+            q: { type: 'string', description: 'Exact ordered keywords across article content.' },
+            qInTitle: { type: 'string', description: 'Exact ordered keywords in the title.' },
+            qInMeta: { type: 'string', description: 'Exact ordered keywords in metadata.' },
           },
+          additionalProperties: false,
         },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'get_launch_pad_history',
-          description: 'Get historical launch data for a specific launch pad to assess reliability. Returns recent launches from this pad with their outcomes.',
-          parameters: {
-            type: 'object',
-            properties: {
-              padId: {
-                type: 'string',
-                description: 'Launch pad ID from Launch Library 2',
-              },
-              limit: {
-                type: 'number',
-                description: 'Number of historical launches to retrieve (default: 10, max: 20)',
-                default: 10,
-              },
-            },
-            required: ['padId'],
-          },
-        },
-      },
-    ],
-    'flight-delay': [
-      {
-        type: 'function',
-        function: {
-          name: 'get_flight_status',
-          description: 'Get real-time flight status from OpenSky Network using ADS-B data. Returns current position, altitude, velocity, and ground status.',
-          parameters: {
-            type: 'object',
-            properties: {
-              icao24: {
-                type: 'string',
-                description: 'Aircraft ICAO24 transponder address (6-character hex, e.g., "a1b2c3")',
-              },
-            },
-            required: ['icao24'],
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'get_weather',
-          description: 'Get current weather conditions from Open-Meteo for departure or arrival location. Returns temperature, wind speed/direction, and weather code.',
-          parameters: {
-            type: 'object',
-            properties: {
-              latitude: {
-                type: 'number',
-                description: 'Latitude in decimal degrees',
-              },
-              longitude: {
-                type: 'number',
-                description: 'Longitude in decimal degrees',
-              },
-            },
-            required: ['latitude', 'longitude'],
-          },
-        },
-      },
-    ],
-    'github-stars': [
-      {
-        type: 'function',
-        function: {
-          name: 'get_repo_stars',
-          description: 'Get current star count and repository metrics from GitHub API. Returns stars, forks, watchers, open issues, and update timestamps.',
-          parameters: {
-            type: 'object',
-            properties: {
-              owner: {
-                type: 'string',
-                description: 'Repository owner username (e.g., "facebook")',
-              },
-              repo: {
-                type: 'string',
-                description: 'Repository name (e.g., "react")',
-              },
-            },
-            required: ['owner', 'repo'],
-          },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'get_repo_activity',
-          description: 'Get recent commit activity metrics for the repository to assess momentum. Returns weekly commit counts for trend analysis.',
-          parameters: {
-            type: 'object',
-            properties: {
-              owner: {
-                type: 'string',
-                description: 'Repository owner username',
-              },
-              repo: {
-                type: 'string',
-                description: 'Repository name',
-              },
-            },
-            required: ['owner', 'repo'],
-          },
-        },
-      },
-    ],
-  };
-
-  // Add news search tool to all case types for contextual evidence
-  const newsTool = {
-    type: 'function',
-    function: {
-      name: 'search_news',
-      description: 'Search recent news articles for contextual information about the case. Useful for gathering background information, recent developments, or public sentiment. Provide a search query related to the case topic.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'Search query for news articles (e.g., "SpaceX launch", "flight delay", "GitHub repository")',
-          },
-          daysBack: {
-            type: 'number',
-            description: 'Number of days back to search for news (default: 7)',
-            default: 7,
-          },
-          language: {
-            type: 'string',
-            description: 'Language for news articles (default: en)',
-            default: 'en',
-          },
-        },
-        required: ['query'],
       },
     },
-  };
-
-  // Add news tool to each case type
-  for (const caseType in toolsByType) {
-    toolsByType[caseType].push(newsTool);
-  }
-
-  return toolsByType[caseType] || [];
+  ];
 }
 
 module.exports = {

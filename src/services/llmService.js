@@ -1,6 +1,6 @@
 const { OPENROUTER_API_KEY, OPENROUTER_API_URL, OPENROUTER_MODEL } = require('../config/env');
 const { getEthPrice } = require('./priceService');
-const { searchNews } = require('./newsService');
+const { searchNewsData } = require('./newsService');
 
 /**
  * Tool definitions for the LLM
@@ -18,30 +18,24 @@ const tools = [
     type: 'function',
     function: {
       name: 'search_news',
-      description: 'Search for recent cryptocurrency news with filters. Use this to gather recent developments and context to establish a well-informed verdict.',
+      description: 'Search NewsData.io latest English news. Use exact, carefully ordered keywords. Only q, qInTitle, or qInMeta may be provided; image, video, removeduplicate, language, and all other URL parameters are fixed server-side.',
       parameters: {
         type: 'object',
         properties: {
-          query: {
+          q: {
             type: 'string',
-            description: 'Search query for news (e.g., "ethereum", "bitcoin ETF", "regulation"). Leave empty to get all news. Do not use with category.',
+            description: 'Exact ordered keywords across article content.',
           },
-          limit: {
-            type: 'integer',
-            description: 'Number of articles to return (1-100). Default: 20. Use higher values for broader context.',
-            minimum: 1,
-            maximum: 100,
-          },
-          category: {
+          qInTitle: {
             type: 'string',
-            description: 'Filter by category: bitcoin, defi, institutional, regulation, technology, etc. Leave empty for all categories. Do not use with query',
+            description: 'Exact ordered keywords in the title.',
           },
-          source: {
+          qInMeta: {
             type: 'string',
-            description: 'Filter by news source (e.g., "CoinDesk", "Cointelegraph"). Leave empty for all sources.',
+            description: 'Exact ordered keywords in metadata.',
           },
         },
-        required: [],
+        additionalProperties: false,
       },
     },
   },
@@ -61,7 +55,7 @@ async function executeToolCall(toolCall) {
   } else if (toolCall.function.name === 'search_news') {
     const args = JSON.parse(toolCall.function.arguments || '{}');
     console.log('[llmService] Calling search_news with args:', args);
-    const result = await searchNews(args);
+    const result = await searchNewsData(args);
     console.log('[llmService] search_news returned', result.articles?.length || 0, 'articles');
     return result;
   } else {
@@ -125,7 +119,7 @@ async function generatePrediction(question) {
   const messages = [
     {
       role: 'system',
-      content: 'You are a financial analyst AI. Use the available tools to gather information. For news searches, decide how much historical data you need (lookbackDays) and how many articles (limit) to establish a well-informed verdict. Consider recent trends, sentiment, and relevant events. Provide a prediction with a verdict (yes/no) and confidence level (0-100%). Answer concisely.',
+      content: 'You are a financial analyst AI. Use the available tools to gather information. For NewsData.io searches, choose careful exact ordered keywords in q, qInTitle, or qInMeta because poor keyword order may return no results. Consider recent trends, sentiment, and relevant events. Provide a prediction with a verdict (yes/no) and confidence level (0-100%). Answer concisely.',
     },
     {
       role: 'user',

@@ -149,26 +149,110 @@ nav a.active {
 /* Juror Progress */
 .juror-progress {
   display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
+  align-items: start;
 }
 
-.juror-card {
+.juror-column {
+  min-width: 0;
   background: #0e0e18;
   border: 1px solid #1e1e2e;
   border-radius: 8px;
   padding: 1rem;
 }
 
-.juror-card-header {
+.juror-column-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 0.75rem;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
 }
 
-.juror-name {
-  font-weight: 700;
-  font-size: 1.1rem;
+.juror-column-header h3 {
+  font-size: 1.05rem;
+}
+
+.juror-live-section {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #1e1e2e;
+}
+
+.juror-live-section h4 {
+  color: #c084fc;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.65rem;
+}
+
+.live-activity,
+.reasoning-log {
+  color: #d1d5db;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.tool-list,
+.article-list {
+  list-style: none;
+  display: grid;
+  gap: 0.6rem;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.tool-list li,
+.article-list li {
+  background: #12121c;
+  border: 1px solid #1e1e2e;
+  border-radius: 6px;
+  padding: 0.65rem;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.tool-list li span,
+.tool-list li small,
+.article-list li p,
+.article-list li small {
+  display: block;
+  color: #9ca3af;
+  margin-top: 0.3rem;
+}
+
+.article-list a {
+  color: #c084fc;
+}
+
+.juror-result-summary {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #1e1e2e;
+}
+
+.juror-result-summary div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.juror-result-summary span {
+  color: #6b7280;
+  font-size: 0.75rem;
+}
+
+.juror-result-summary code {
+  color: #c084fc;
+  overflow-wrap: anywhere;
+}
+
+.request-error {
+  color: #fb7185;
+  padding: 1rem;
 }
 
 .juror-status {
@@ -410,13 +494,19 @@ nav a.active {
 }
 
 /* Responsive */
+@media (max-width: 900px) {
+  .juror-progress {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 768px) {
-  .juror-stats,
   .summary-card {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .example-grid {
-    grid-template-columns: 1fr;
+  .status-row {
+    display: grid;
+    gap: 0.25rem;
   }
 }

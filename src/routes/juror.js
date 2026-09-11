@@ -7,9 +7,10 @@ const jurorController = require('../controllers/jurorController');
  * Run an investigation with all 3 jurors
  *
  * Body:
- *   - question: The case question
- *   - caseType: One of: 'rocket-launch', 'flight-delay', 'github-stars'
- *   - caseId: (optional) Case identifier
+ *   - question: Any objectively checkable question
+ *
+ * The case receives an internal identifier; no case type or source-specific ID
+ * is required because all jurors use the generic NewsData.io evidence tool.
  */
 router.post('/investigate', jurorController.investigateWithAllJurors);
 
