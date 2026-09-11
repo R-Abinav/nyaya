@@ -96,7 +96,7 @@ There is no on-chain dispute window. It would cost contract complexity and demo 
 - `bounty`: the case's bounty, whether attached by an external opener or drawn from the Case Bounty Treasury
 - `s_i`: juror i's stake
 - `x_i`: juror i's total x402 spend on this case, read by the resolver from that juror's withdrawals tagged with this case id. The juror never submits it
-- `P = bounty + Σ s_j` over every incorrect juror (the reward pool)
+- `P = bounty + Σ s_j` over every incorrect or unrevealed juror, plus any stakes rolled over from an earlier case nobody got right (the reward pool)
 - `S = Σ s_j` over every correct juror
 - `R = P / S`: the pool per unit of correct stake, one number shared by every correct juror in the case
 - `α_i = x_i / s_i`: juror i's spend relative to its own stake
@@ -112,7 +112,8 @@ There is no on-chain dispute window. It would cost contract complexity and demo 
   - **Lost from a cancelled case:** the stake is refunded but the spend is gone, so net is `−x_i` on capital `x_i`.
 
   Both go into the same cumulative totals. A cancelled case with no spend changes nothing.
-- If no juror is correct, the bounty returns to its source (the external opener, or the Case Bounty Treasury) and the slashed stakes roll into the next case's pool.
+- A juror that withdraws evidence money for a case but never commits has that spend recorded the same way, as a third, separately labelled cause: net `−x_i` on capital `x_i`. The money left its treasury, so leaving it out would let the tracked return drift from the real balance. Evidence withdrawals close at the commit deadline.
+- If no juror is correct, the bounty returns to its source and the slashed stakes roll into the pool of the next case that settles with at least one correct juror. An external opener claims its refund with `withdrawRefund` rather than having it sent, so an opener whose address rejects HBAR cannot block a settlement. A bounty from the Case Bounty Treasury goes straight back into it.
 - Every payout is rounded down to the tinybar. Whatever is left of the pool after the correct jurors are paid goes to the Case Bounty Treasury, never to an individual juror.
 
 ### What stake size does and does not buy

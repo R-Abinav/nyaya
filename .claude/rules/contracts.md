@@ -50,14 +50,16 @@ Nothing is vendored. All contract code here is ours.
 - **Cancellation.** Anyone can cancel, not just the operator. Cancellation refunds every committed juror's full stake, whether or not it revealed, and returns the bounty to its recorded source. Keep this a separate code path from the non-reveal forfeit. A non-reveal is a juror's choice and forfeits the stake; a missing outcome is a platform failure and refunds it.
 - **Cancelled-case spend is still a loss.** For each juror with case-tagged withdrawals on a cancelled case, add that `x402Spend` to cumulative capital and subtract it from cumulative net. The refunded stake adds nothing to either total. Emit it as a cancelled-case loss, distinct from an incorrect-ruling loss, even though the accounting is the same.
 - **Settlement math, deterministic given the outcome:**
-  - `P = bounty + Σ stake` of incorrect jurors; `S = Σ stake` of correct jurors.
+  - `P = bounty + Σ stake` of incorrect and unrevealed jurors `+ rolloverPool`; `S = Σ stake` of correct jurors.
+  - Settlement iterates the case's participants: every juror that committed or withdrew evidence money for it. Each gets a `JurorSettled` event with a `Result`: `Correct`, `Incorrect`, `Unrevealed`, or `NoCommitment` (spent on evidence but never committed; net `−x402Spend` on capital `x402Spend`). Losses share accounting but keep their cause.
   - Correct juror: stake returned plus `reward = P · stake / S`. Proportional to stake, never an equal split.
   - Incorrect or unrevealed juror: whole stake slashed into `P`.
   - `x402Spend` is the sum of the juror's withdrawals tagged with this case id. Settlement reads it only from that history, never from anything the juror submits.
   - `net = reward − x402Spend` if correct, `−stake − x402Spend` if not. Never drop the x402 term.
   - `return = net / (stake + x402Spend)`. This is the per-case figure. The bonding curve reads the juror's cumulative return since genesis, `Σ net / Σ (stake + x402Spend)` over all its settled cases, pre-skim. Store it as two per-juror running totals: signed cumulative net and cumulative capital. Never a mean of per-case percentages, and no sliding window.
   - Skim: 20% of positive net goes to the juror's shareholders via ATS mass payout, and 80% is credited to the juror's treasury. No skim on negative net.
-  - No correct jurors: return the bounty to its source (the external opener, or the Case Bounty Treasury) and roll slashed stakes into the next case's pool.
+  - No correct jurors: return the bounty to its source and add the slashed stakes to `rolloverPool`, which joins the pool of the next case that settles with a correct juror. External openers are credited to `refundOf` and pull the money with `withdrawRefund()`, never pushed, so a reverting opener can't block settlement. Treasury-sourced bounties go back to `caseBountyTreasury`.
+  - `returnBps(juror)` = `cumulativeNet × 10000 / cumulativeCapital`, rounded toward zero. This is what the bonding curve reads.
   - Rounding: every payout is rounded down to the tinybar. Whatever is left of the pool after paying correct jurors goes to the Case Bounty Treasury, never to an individual juror. The skim is `floor(net × 20 / 100)` and the treasury credit is `net − skim`, so the skim leaves no remainder.
 - **Treasury drawdown paths.** `JurorTreasury` has exactly three ways money leaves a juror's balance, all resolver-only:
   - `lockStake`
@@ -65,6 +67,7 @@ Nothing is vendored. All contract code here is ours.
   - `withdrawForX402`
 
   `unlockStake` returns a locked stake to the juror. Funding (`fund`) is open to anyone. Never add a juror-callable withdrawal. The withdrawal cap and window are constructor values set at deploy.
+- **Evidence withdrawals go through the resolver.** A juror calls `withdrawForEvidence(caseId, amount)`, allowed only before the case's commit deadline, and the resolver calls `JurorTreasury.withdrawForX402`.
 - **x402 withdrawal path.** A capped, rate-limited withdrawal from a juror's treasury to its hot wallet, tagged with a case id at withdrawal time. The withdrawn amount counts as that case's `x402Spend`, and this is the only source settlement uses for spend. This is a documented trust leak: the contract cannot verify where the money went after it leaves.
 
 ## Share rules
