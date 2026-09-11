@@ -202,17 +202,123 @@ contract NyayaResolverSettlementTest is Test {
         uint256 id = _runWorkedExample();
         resolver.settle(id);
 
-        assertEq(treasury.balanceOf(jurorA), 100 * HBAR - 5 * HBAR + 4_166_666_666, "stake back plus reward");
-        assertEq(treasury.balanceOf(jurorB), 100 * HBAR - 1 * HBAR + 833_333_333);
+        assertEq(treasury.balanceOf(jurorA), 100 * HBAR - 5 * HBAR + 4_166_666_666 - 733_333_333, "stake back, reward less skim");
+        assertEq(treasury.balanceOf(jurorB), 100 * HBAR - 1 * HBAR + 833_333_333 - 146_666_666);
         assertEq(treasury.balanceOf(jurorC), 70 * HBAR, "C's stake is gone");
         assertEq(treasury.lockedStake(jurorA, id), 0);
         assertEq(treasury.lockedStake(jurorC, id), 0);
         assertEq(hotA.balance, 5 * HBAR);
         assertEq(hotB.balance, 1 * HBAR);
-        assertEq(address(resolver).balance, 1, "only the 1-tinybar remainder is left");
+        assertEq(address(resolver).balance, 1 + 733_333_333 + 146_666_666, "remainder plus both skims held for payout");
 
         // Nothing created or lost: 300 funded + 20 bounty in, all accounted for.
         assertEq(address(treasury).balance + address(resolver).balance + hotA.balance + hotB.balance, 320 * HBAR);
+    }
+
+    // --- step 6: the 20% skim ---
+
+    /// Built on the exact figures settlement recorded on-chain, not the doc's rounded HBAR.
+    function test_SkimOnWorkedExampleUsesOnChainNetFigures() public {
+        uint256 id = _runWorkedExample();
+        _settleAndRead(id);
+        assertEq(r[jurorA].net, 3_666_666_666);
+        assertEq(r[jurorB].net, 733_333_333);
+
+        uint256 skimA = resolver.pendingDistribution(jurorA);
+        uint256 skimB = resolver.pendingDistribution(jurorB);
+        assertEq(skimA, 733_333_333, "floor(3,666,666,666 x 20%)");
+        assertEq(skimB, 146_666_666, "floor(733,333,333 x 20%)");
+
+        // What the juror keeps is whatever is left after the floor, so the two add back exactly.
+        uint256 keptA = uint256(r[jurorA].net) - skimA;
+        uint256 keptB = uint256(r[jurorB].net) - skimB;
+        assertEq(keptA, 2_933_333_333);
+        assertEq(keptB, 586_666_667);
+        assertEq(skimA + keptA, uint256(r[jurorA].net));
+        assertEq(skimB + keptB, uint256(r[jurorB].net));
+
+        // The treasury was credited reward - skim, on top of the returned stake and minus the spend already gone.
+        assertEq(treasury.balanceOf(jurorA), 100 * HBAR - r[jurorA].spend + r[jurorA].reward - skimA);
+        assertEq(treasury.balanceOf(jurorB), 100 * HBAR - r[jurorB].spend + r[jurorB].reward - skimB);
+
+        // The build guide's figures, rounded to cents of an HBAR: 7.33 and 1.47.
+        assertEq((skimA + HBAR / 200) / (HBAR / 100), 733);
+        assertEq((skimB + HBAR / 200) / (HBAR / 100), 147);
+        // And the doc's post-skim 53.33%: kept / capital in basis points, both 5333.
+        assertEq(keptA * 10_000 / r[jurorA].capital, 5333);
+        assertEq(keptB * 10_000 / r[jurorB].capital, 5333);
+    }
+
+    function test_SkimDoesNotChangeTheRecordedReturn() public {
+        uint256 id = _runWorkedExample();
+        _settleAndRead(id);
+
+        assertGt(resolver.pendingDistribution(jurorA), 0, "a skim was taken");
+        // The track record the bonding curve reads is pre-skim: net, not net minus skim.
+        assertEq(resolver.cumulativeNet(jurorA), 3_666_666_666);
+        assertEq(resolver.cumulativeNet(jurorB), 733_333_333);
+        assertEq(resolver.cumulativeCapital(jurorA), 5_500_000_000);
+        assertEq(resolver.returnBps(jurorA), 6666, "66.66%, not the post-skim 53.33%");
+        assertEq(resolver.returnBps(jurorB), 6666);
+        assertEq(r[jurorA].net, 3_666_666_666, "JurorSettled reports pre-skim net too");
+    }
+
+    function test_LosingJurorPaysNoSkim() public {
+        uint256 id = _runWorkedExample();
+        vm.recordLogs();
+        resolver.settle(id);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        assertEq(resolver.pendingDistribution(jurorC), 0);
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics[0] == NyayaResolver.Skimmed.selector) {
+                assertTrue(address(uint160(uint256(logs[i].topics[2]))) != jurorC, "no Skimmed event for C");
+            }
+        }
+    }
+
+    function test_CorrectJurorWithNegativeNetPaysNoSkim() public {
+        uint256 id = _openCase(1 * HBAR);
+        _spend(id, jurorA, 5 * HBAR);
+        _commit(id, jurorA, NyayaResolver.Ruling.Yes, 10 * HBAR);
+        vm.warp(commitDeadline);
+        _reveal(id, jurorA, NyayaResolver.Ruling.Yes);
+        _resolve(id, NyayaResolver.Ruling.Yes);
+        _settleAndRead(id);
+
+        assertEq(r[jurorA].reward, 1 * HBAR);
+        assertEq(r[jurorA].net, -4 * int256(HBAR), "right, but spent more than it won");
+        assertEq(resolver.pendingDistribution(jurorA), 0);
+        assertEq(treasury.balanceOf(jurorA), 100 * HBAR - 5 * HBAR + 1 * HBAR, "full reward credited");
+    }
+
+    function test_ReleaseSendsSkimToTheJurorsDistributionAddress() public {
+        uint256 id = _runWorkedExample();
+        resolver.settle(id);
+        address distributor = makeAddr("jurorADistribution");
+
+        vm.expectRevert(NyayaResolver.NoDistributionAddress.selector);
+        resolver.releaseDistribution(jurorA);
+
+        vm.prank(operator);
+        resolver.setDistributionAddress(jurorA, distributor);
+        resolver.releaseDistribution(jurorA);
+
+        assertEq(distributor.balance, 733_333_333);
+        assertEq(resolver.pendingDistribution(jurorA), 0);
+        vm.expectRevert(NyayaResolver.NothingToWithdraw.selector);
+        resolver.releaseDistribution(jurorA);
+    }
+
+    function test_DistributionAddressIsOperatorOnlyAndSetOnce() public {
+        vm.expectRevert(NyayaResolver.NotOperator.selector);
+        resolver.setDistributionAddress(jurorA, makeAddr("d"));
+
+        vm.startPrank(operator);
+        resolver.setDistributionAddress(jurorA, makeAddr("d"));
+        vm.expectRevert(NyayaResolver.DistributionAddressAlreadySet.selector);
+        resolver.setDistributionAddress(jurorA, makeAddr("other"));
+        vm.stopPrank();
     }
 
     // --- the formula holds beyond the one example ---
@@ -292,6 +398,13 @@ contract NyayaResolverSettlementTest is Test {
         assertEq(resolver.caseBountyTreasury(), remainder);
         assertEq(r[jurorA].net, int256(r[jurorA].reward) - int256(xA));
         assertEq(r[jurorA].capital, sA + xA);
+
+        // Skim: floor(20% of positive net), nothing on a loss; the juror is credited exactly reward - skim;
+        // and the recorded track record stays pre-skim.
+        uint256 skimA = r[jurorA].net > 0 ? uint256(r[jurorA].net) * 2000 / 10_000 : 0;
+        assertEq(resolver.pendingDistribution(jurorA), skimA);
+        assertEq(treasury.balanceOf(jurorA), 100 * HBAR - xA + r[jurorA].reward - skimA);
+        assertEq(resolver.cumulativeNet(jurorA), r[jurorA].net);
     }
 
     // --- losses keep their cause ---
