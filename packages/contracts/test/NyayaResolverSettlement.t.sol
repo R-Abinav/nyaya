@@ -123,6 +123,9 @@ contract NyayaResolverSettlementTest is Test {
     uint256 internal correctStake;
     uint256 internal remainder;
     uint256 internal rolledIn;
+    uint256 internal spentWithoutCommittingCount;
+    address internal spentWithoutCommittingJuror;
+    uint256 internal spentWithoutCommittingAmount;
 
     function _settleAndRead(uint256 id) internal {
         vm.recordLogs();
@@ -130,7 +133,11 @@ contract NyayaResolverSettlementTest is Test {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter != address(resolver)) continue;
-            if (logs[i].topics[0] == NyayaResolver.JurorSettled.selector) {
+            if (logs[i].topics[0] == NyayaResolver.SpentWithoutCommitting.selector) {
+                spentWithoutCommittingCount++;
+                spentWithoutCommittingJuror = address(uint160(uint256(logs[i].topics[2])));
+                spentWithoutCommittingAmount = abi.decode(logs[i].data, (uint256));
+            } else if (logs[i].topics[0] == NyayaResolver.JurorSettled.selector) {
                 r[address(uint160(uint256(logs[i].topics[2])))] = abi.decode(logs[i].data, (Settled));
             } else if (logs[i].topics[0] == NyayaResolver.CaseSettled.selector) {
                 (, pool, correctStake, remainder, rolledIn,) =
@@ -453,6 +460,17 @@ contract NyayaResolverSettlementTest is Test {
         assertEq(r[jurorC].net, -3 * int256(HBAR));
         assertEq(r[jurorC].capital, 3 * HBAR);
         assertEq(treasury.balanceOf(jurorC), 97 * HBAR);
+
+        // The accounting above is unchanged; on top of it, a dedicated alert event names the juror and the spend.
+        assertEq(spentWithoutCommittingCount, 1);
+        assertEq(spentWithoutCommittingJuror, jurorC);
+        assertEq(spentWithoutCommittingAmount, 3 * HBAR);
+    }
+
+    function test_RoutineSettlementNeverEmitsTheAlert() public {
+        uint256 id = _runWorkedExample();
+        _settleAndRead(id);
+        assertEq(spentWithoutCommittingCount, 0, "correct, incorrect and unrevealed jurors are not bugs");
     }
 
     // --- nobody right: bounty back to its source, slashed stakes roll over ---

@@ -116,6 +116,9 @@ contract NyayaResolver {
     event RefundCredited(address indexed account, uint256 indexed caseId, uint256 amount);
     event RefundWithdrawn(address indexed account, uint256 amount);
     /// `retainedNet` is net minus skim: what the juror keeps. The recorded track record stays pre-skim.
+    /// Alert signal. Agents always commit after spending on a case, so recorded spend with no commitment
+    /// can only mean an agent bug: a crash, a missed deadline, or a failed transaction.
+    event SpentWithoutCommitting(uint256 indexed caseId, address indexed juror, uint256 x402Spend);
     event Skimmed(uint256 indexed caseId, address indexed juror, uint256 skim, int256 retainedNet);
     event DistributionAddressSet(address indexed juror, address indexed distributionAddress);
     event DistributionReleased(address indexed juror, address indexed distributionAddress, uint256 amount);
@@ -408,6 +411,10 @@ contract NyayaResolver {
         cumulativeCapital[juror] += stake + spend;
         // forge-lint: disable-next-line(reentrancy-events)
         emit JurorSettled(caseId, juror, result, stake, spend, reward, net, stake + spend);
+        if (result == Result.NoCommitment) {
+            // forge-lint: disable-next-line(reentrancy-events)
+            emit SpentWithoutCommitting(caseId, juror, spend);
+        }
     }
 
     function _returnBounty(uint256 caseId, Case storage c) private {
