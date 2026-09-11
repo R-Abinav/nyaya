@@ -51,8 +51,9 @@ open      question, case type, commit deadline, resolution time, and a bounty, e
           by whoever calls openCase() or drawn from the Case Bounty Treasury by the operator
 commit    each of the 3 jurors investigates (paying x402 per call), then submits
           keccak256(caseId, juror, ruling, confidence, salt) and locks a stake from its treasury
-reveal    after the commit deadline, each juror pins its evidence trail to IPFS and reveals ruling,
-          confidence, salt, and the trail's CID (no spend figure; spend comes from tagged withdrawals)
+reveal    between the commit deadline and the resolution time, each juror pins its evidence trail to IPFS
+          and reveals ruling, confidence, salt, and the trail's CID (no spend figure; spend comes from
+          tagged withdrawals)
 resolve   between the resolution time and the end of a 24-hour grace period, the operator runs the case
           type's checker and submits the outcome plus the IPFS CID of the raw evidence the checker used
 settle    anyone triggers settlement: score each juror, split the pool, apply the skim, record return
