@@ -47,6 +47,8 @@ contract NyayaResolver {
     uint16 public constant MAX_CONFIDENCE_BPS = 10_000;
     uint256 public constant GRACE_PERIOD = 24 hours;
     int256 internal constant BPS = 10_000;
+    /// Share of a winning juror's positive net profit paid to its shareholders.
+    uint256 public constant SKIM_BPS = 2_000;
 
     JurorTreasury public immutable treasury;
     address public immutable operator;
@@ -71,6 +73,11 @@ contract NyayaResolver {
     mapping(address juror => uint256) public cumulativeCapital;
 
     mapping(address account => uint256) public refundOf;
+
+    /// Skim owed to each juror's shareholders, held here until released to that juror's distribution address.
+    mapping(address juror => uint256) public pendingDistribution;
+    /// Where a juror's skim goes for payout to its share holders. Set once per juror by the operator.
+    mapping(address juror => address) public distributionAddress;
 
     event CaseOpened(
         uint256 indexed caseId,
@@ -108,6 +115,10 @@ contract NyayaResolver {
     );
     event RefundCredited(address indexed account, uint256 indexed caseId, uint256 amount);
     event RefundWithdrawn(address indexed account, uint256 amount);
+    /// `retainedNet` is net minus skim: what the juror keeps. The recorded track record stays pre-skim.
+    event Skimmed(uint256 indexed caseId, address indexed juror, uint256 skim, int256 retainedNet);
+    event DistributionAddressSet(address indexed juror, address indexed distributionAddress);
+    event DistributionReleased(address indexed juror, address indexed distributionAddress, uint256 amount);
 
     error ZeroAddress();
     error NotOperator();
@@ -134,6 +145,8 @@ contract NyayaResolver {
     error AlreadySettled();
     error NothingToWithdraw();
     error TransferFailed();
+    error DistributionAddressAlreadySet();
+    error NoDistributionAddress();
 
     modifier onlyOperator() {
         if (msg.sender != operator) revert NotOperator();
@@ -273,6 +286,26 @@ contract NyayaResolver {
         emit CaseSettled(caseId, c.outcome, pool, correctStake, remainder, rolledIn, 0);
     }
 
+    function setDistributionAddress(address juror, address to) external onlyOperator {
+        if (juror == address(0) || to == address(0)) revert ZeroAddress();
+        if (distributionAddress[juror] != address(0)) revert DistributionAddressAlreadySet();
+        distributionAddress[juror] = to;
+        emit DistributionAddressSet(juror, to);
+    }
+
+    /// Permissionless: the money can only go to the juror's fixed distribution address.
+    function releaseDistribution(address juror) external {
+        address to = distributionAddress[juror];
+        if (to == address(0)) revert NoDistributionAddress();
+        uint256 amount = pendingDistribution[juror];
+        if (amount == 0) revert NothingToWithdraw();
+        pendingDistribution[juror] = 0;
+        emit DistributionReleased(juror, to, amount);
+        // forge-lint: disable-next-line(arbitrary-send-eth)
+        (bool ok,) = to.call{value: amount}("");
+        if (!ok) revert TransferFailed();
+    }
+
     function withdrawRefund() external {
         uint256 amount = refundOf[msg.sender];
         if (amount == 0) revert NothingToWithdraw();
@@ -338,21 +371,39 @@ contract NyayaResolver {
             if (!cm.revealed || cm.ruling != outcome) continue;
             uint256 reward = pool * cm.stake / correctStake;
             paid += reward;
-            _record(caseId, juror, Result.Correct, cm.stake, reward);
-            // forge-lint: disable-next-line(calls-loop, unused-return)
-            treasury.unlockStake(juror, caseId);
-            // forge-lint: disable-next-line(calls-loop)
-            if (reward > 0) treasury.fund{value: reward}(juror);
+            _payWinner(caseId, juror, cm.stake, reward);
         }
     }
 
+    /// Records the pre-skim result first, then takes the skim from what is paid out. The skim is
+    /// floor(net × 20%) on positive net only, and the juror keeps exactly reward − skim, so skim and retained
+    /// always add back to the full reward and net.
+    function _payWinner(uint256 caseId, address juror, uint256 stake, uint256 reward) private {
+        int256 net = _record(caseId, juror, Result.Correct, stake, reward);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint256 skim = net > 0 ? uint256(net) * SKIM_BPS / 10_000 : 0;
+        if (skim > 0) {
+            pendingDistribution[juror] += skim;
+            // forge-lint: disable-next-line(unsafe-typecast, reentrancy-events)
+            emit Skimmed(caseId, juror, skim, net - int256(skim));
+        }
+        // forge-lint: disable-next-line(calls-loop, unused-return)
+        treasury.unlockStake(juror, caseId);
+        // forge-lint: disable-next-line(calls-loop)
+        if (reward > skim) treasury.fund{value: reward - skim}(juror);
+    }
+
     /// Spend is read from the treasury's case-tagged withdrawals, never from anything the juror submitted.
-    function _record(uint256 caseId, address juror, Result result, uint256 stake, uint256 reward) private {
+    /// Returns the pre-skim net, which is what the track record stores.
+    function _record(uint256 caseId, address juror, Result result, uint256 stake, uint256 reward)
+        private
+        returns (int256 net)
+    {
         // forge-lint: disable-next-line(calls-loop)
         uint256 spend = treasury.x402Spend(juror, caseId);
         // Amounts are bounded by total HBAR supply (under 2^63 tinybars), so these casts cannot overflow.
         // forge-lint: disable-next-line(unsafe-typecast)
-        int256 net = result == Result.Correct ? int256(reward) - int256(spend) : -int256(stake) - int256(spend);
+        net = result == Result.Correct ? int256(reward) - int256(spend) : -int256(stake) - int256(spend);
         cumulativeNet[juror] += net;
         cumulativeCapital[juror] += stake + spend;
         // forge-lint: disable-next-line(reentrancy-events)
