@@ -52,6 +52,7 @@ Nothing is vendored. All contract code here is ours.
 - **Settlement math, deterministic given the outcome:**
   - `P = bounty + Σ stake` of incorrect and unrevealed jurors `+ rolloverPool`; `S = Σ stake` of correct jurors.
   - Settlement iterates the case's participants: every juror that committed or withdrew evidence money for it. Each gets a `JurorSettled` event with a `Result`: `Correct`, `Incorrect`, `Unrevealed`, or `NoCommitment` (spent on evidence but never committed; net `−x402Spend` on capital `x402Spend`). Losses share accounting but keep their cause.
+  - `NoCommitment` is by definition a bug signal, never a legitimate agent decision, because agents always commit after spending. Alongside the normal accounting, settlement emits `SpentWithoutCommitting(caseId, juror, x402Spend)` so it can trigger an alert. Keep this event additive: it must never change the math.
   - Correct juror: stake returned plus `reward = P · stake / S`. Proportional to stake, never an equal split.
   - Incorrect or unrevealed juror: whole stake slashed into `P`.
   - `x402Spend` is the sum of the juror's withdrawals tagged with this case id. Settlement reads it only from that history, never from anything the juror submits.
@@ -80,7 +81,7 @@ Nothing is vendored. All contract code here is ours.
 - A juror's own key and hot wallet must be blocked from holding that juror's shares. This is the anti-wash-trading control and it is a judged feature, not an optional guard.
 
 ## Events
-Every state change the subgraph or UI needs must emit an event: commit, reveal (with evidence-trail CID), outcome submission (with evidence CID), per-juror settlement (stake, spend, reward, net, return, skim), pool remainder to the Case Bounty Treasury, cancellation (with each refund and each juror's recorded cancelled-case spend), withdrawal (with case id), share trade, distribution. The subgraph rebuilds state from event deltas and must never need an RPC call per record.
+Every state change the subgraph or UI needs must emit an event: commit, reveal (with evidence-trail CID), outcome submission (with evidence CID), per-juror settlement (stake, spend, reward, net, return, skim), spent-without-committing alert, pool remainder to the Case Bounty Treasury, cancellation (with each refund and each juror's recorded cancelled-case spend), withdrawal (with case id), share trade, distribution. The subgraph rebuilds state from event deltas and must never need an RPC call per record.
 
 ## Testing
 - Forge tests are for logic. A test that passes against a mock but has never run against testnet is not evidence. After any resolver or share change, run the real end-to-end script against Hedera testnet and report the transaction hash.

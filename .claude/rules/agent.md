@@ -44,12 +44,10 @@ x402 money leaves the juror's treasury through a capped, rate-limited withdrawal
 ## Models and differentiation
 All three jurors run NVIDIA Nemotron (free tier) via OpenRouter. They differ only in system prompt (evidence-sufficiency threshold, interpretive style) and source/tool preferences. Keep those differences explicit in each juror's config so the demo can show why jurors diverged. Correlated failure is a known tradeoff of using one model; do not add other models without discussing it first.
 
-## Open question for Anurag: spending without committing
-The resolver handles a juror that withdraws evidence money for a case and then never commits. It settles as `Result.NoCommitment` in that juror's `JurorSettled` event, and the spend is recorded as a loss: net `−x` on capital `x`. That accounting is final.
+## Always commit after spending
+An agent that has withdrawn evidence money for a case must always commit a ruling on that case before the commit deadline. Abstaining after spending is not a supported behaviour. Low confidence is expressed through a small confidence-scaled stake, never by not ruling.
 
-What isn't settled is whether this should ever happen in ordinary operation. Spending on investigation with no intent to rule has no upside. So: can the agent reach this state deliberately, as a legitimate late decision not to rule after seeing the evidence? Or only through a bug, such as a crash or a missed commit deadline after spending?
-
-If it's only a bug, it should surface as a loud signal: an alertable log line in the agent, and probably a dedicated event on-chain. It should not be a quietly settled loss that looks like routine accounting. Answer this before the agent's commit path is finished.
+So a juror that spent but never committed can only be a bug: a crash, a missed deadline, or a failed transaction. The agent must emit a loud, alertable log line whenever it detects that it spent on a case and has not committed as the deadline approaches or passes. On-chain, settlement records the spend as a loss (`Result.NoCommitment`, net `−x` on capital `x`) and also emits `SpentWithoutCommitting(caseId, juror, x402Spend)`, which an alert should watch for.
 
 ## Evidence Gateway
 - Express, one route per evidence type, grouped by case type. x402 middleware from the published libraries; do not hand-roll the payment protocol.
