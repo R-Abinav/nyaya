@@ -63,6 +63,18 @@ contract NyayaResolverSettlementTest is Test {
         id = resolver.openCase{value: bounty}("github-stars", "q", commitDeadline, resolutionTime);
     }
 
+    function _openCaseWith(uint256 bounty, uint256 commitAt, uint256 resolveAt) internal returns (uint256 id) {
+        vm.deal(opener, bounty);
+        vm.prank(opener);
+        id = resolver.openCase{value: bounty}("launch", "q", uint64(commitAt), uint64(resolveAt));
+    }
+
+    function _resolveAt(uint256 id, uint256 at, NyayaResolver.Ruling outcome) internal {
+        vm.warp(at);
+        vm.prank(operator);
+        resolver.submitOutcome(id, outcome, CID);
+    }
+
     function _salt(address juror) internal pure returns (bytes32) {
         return keccak256(abi.encode("salt", juror));
     }
@@ -110,6 +122,7 @@ contract NyayaResolverSettlementTest is Test {
     uint256 internal pool;
     uint256 internal correctStake;
     uint256 internal remainder;
+    uint256 internal rolledIn;
 
     function _settleAndRead(uint256 id) internal {
         vm.recordLogs();
@@ -120,8 +133,8 @@ contract NyayaResolverSettlementTest is Test {
             if (logs[i].topics[0] == NyayaResolver.JurorSettled.selector) {
                 r[address(uint160(uint256(logs[i].topics[2])))] = abi.decode(logs[i].data, (Settled));
             } else if (logs[i].topics[0] == NyayaResolver.CaseSettled.selector) {
-                (, pool, correctStake, remainder,) =
-                    abi.decode(logs[i].data, (NyayaResolver.Ruling, uint256, uint256, uint256, uint256));
+                (, pool, correctStake, remainder, rolledIn,) =
+                    abi.decode(logs[i].data, (NyayaResolver.Ruling, uint256, uint256, uint256, uint256, uint256));
             }
         }
     }
@@ -356,6 +369,58 @@ contract NyayaResolverSettlementTest is Test {
 
         assertEq(pool, 19 * HBAR, "4 bounty + 15 rolled over");
         assertEq(r[jurorC].reward, 19 * HBAR);
+        assertEq(resolver.rolloverPool(), 0);
+    }
+
+    /// Cases of different types run on different timelines and overlap. A rollover must only reach a case whose
+    /// jurors could still see it before locking their stakes, never one whose commit window had already closed.
+    function test_RolloverNeverLandsInACaseWhoseCommitWindowClosedBeforeItExisted() public {
+        uint256 t0 = block.timestamp;
+        uint256 x = _openCaseWith(20 * HBAR, t0 + 1 hours, t0 + 6 hours); // long case, nobody right
+        uint256 y = _openCaseWith(4 * HBAR, t0 + 2 hours, t0 + 8 hours); // commits close long before X settles
+        uint256 w = _openCaseWith(3 * HBAR, t0 + 6 hours, t0 + 8 hours); // commits close exactly as X settles
+        uint256 z = _openCaseWith(2 * HBAR, t0 + 7 hours, t0 + 9 hours); // commits still open when X settles
+
+        _commit(x, jurorA, NyayaResolver.Ruling.No, 10 * HBAR);
+        _commit(x, jurorB, NyayaResolver.Ruling.No, 5 * HBAR);
+        _commit(y, jurorC, NyayaResolver.Ruling.Yes, 10 * HBAR);
+        _commit(w, jurorB, NyayaResolver.Ruling.Yes, 10 * HBAR);
+
+        vm.warp(t0 + 1 hours);
+        _reveal(x, jurorA, NyayaResolver.Ruling.No);
+        _reveal(x, jurorB, NyayaResolver.Ruling.No);
+        vm.warp(t0 + 2 hours);
+        _reveal(y, jurorC, NyayaResolver.Ruling.Yes);
+
+        // X settles with no winner: its 15 HBAR of slashed stakes become the rollover, at t0 + 6h.
+        _resolveAt(x, t0 + 6 hours, NyayaResolver.Ruling.Yes);
+        resolver.settle(x);
+        assertEq(resolver.rolloverPool(), 15 * HBAR);
+        assertEq(resolver.rolloverUpdatedAt(), t0 + 6 hours);
+        _reveal(w, jurorB, NyayaResolver.Ruling.Yes);
+        _commit(z, jurorA, NyayaResolver.Ruling.Yes, 5 * HBAR); // Z's jurors commit knowing the rollover exists
+
+        // Y and W settle after X with winners, but their commit windows had closed before the rollover existed.
+        _resolveAt(y, t0 + 8 hours, NyayaResolver.Ruling.Yes);
+        _settleAndRead(y);
+        assertEq(rolledIn, 0, "Y's commits closed at t0+2h, before the rollover");
+        assertEq(pool, 4 * HBAR);
+        assertEq(r[jurorC].reward, 4 * HBAR);
+
+        vm.prank(operator);
+        resolver.submitOutcome(w, NyayaResolver.Ruling.Yes, CID);
+        _settleAndRead(w);
+        assertEq(rolledIn, 0, "W's commits closed at the very moment the rollover appeared");
+        assertEq(pool, 3 * HBAR);
+        assertEq(resolver.rolloverPool(), 15 * HBAR, "still waiting for an eligible case");
+
+        // Z was still open for commits when the rollover appeared, so it receives all of it.
+        _reveal(z, jurorA, NyayaResolver.Ruling.Yes);
+        _resolveAt(z, t0 + 9 hours, NyayaResolver.Ruling.Yes);
+        _settleAndRead(z);
+        assertEq(rolledIn, 15 * HBAR);
+        assertEq(pool, 2 * HBAR + 15 * HBAR);
+        assertEq(r[jurorA].reward, 17 * HBAR);
         assertEq(resolver.rolloverPool(), 0);
     }
 

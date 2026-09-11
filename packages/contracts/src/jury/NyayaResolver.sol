@@ -54,8 +54,12 @@ contract NyayaResolver {
     uint256 public caseCount;
     /// Rounding remainders and treasury-sourced refunds. Funds operator-opened cases.
     uint256 public caseBountyTreasury;
-    /// Slashed stakes from a case nobody got right, added to the pool of the next case that settles with a winner.
+    /// Slashed stakes from a case nobody got right, added to the pool of the next case that settles with a winner
+    /// and whose commit window was still open when the rollover was last added to.
     uint256 public rolloverPool;
+    /// When rolloverPool last grew. A case whose commit deadline is at or before this can't receive it: its jurors
+    /// had already locked their stakes without being able to see the larger pool.
+    uint64 public rolloverUpdatedAt;
 
     mapping(uint256 caseId => Case) public cases;
     mapping(uint256 caseId => mapping(address juror => Commitment)) public commitments;
@@ -99,7 +103,8 @@ contract NyayaResolver {
         uint256 pool,
         uint256 correctStake,
         uint256 remainderToCaseBountyTreasury,
-        uint256 rolledOver
+        uint256 rolledIn,
+        uint256 rolledOut
     );
     event RefundCredited(address indexed account, uint256 indexed caseId, uint256 amount);
     event RefundWithdrawn(address indexed account, uint256 amount);
@@ -248,19 +253,24 @@ contract NyayaResolver {
         (uint256 slashed, uint256 correctStake) = _gradeAndSlash(caseId, c.outcome);
 
         if (correctStake == 0) {
-            rolloverPool += slashed;
+            if (slashed > 0) {
+                rolloverPool += slashed;
+                // forge-lint: disable-next-line(unsafe-typecast)
+                rolloverUpdatedAt = uint64(block.timestamp);
+            }
             _returnBounty(caseId, c);
             // forge-lint: disable-next-line(reentrancy-events)
-            emit CaseSettled(caseId, c.outcome, 0, 0, 0, slashed);
+            emit CaseSettled(caseId, c.outcome, 0, 0, 0, 0, slashed);
             return;
         }
 
-        uint256 pool = c.bounty + slashed + rolloverPool;
-        rolloverPool = 0;
+        uint256 rolledIn = c.commitDeadline > rolloverUpdatedAt ? rolloverPool : 0;
+        rolloverPool -= rolledIn;
+        uint256 pool = c.bounty + slashed + rolledIn;
         uint256 remainder = pool - _payCorrect(caseId, c.outcome, pool, correctStake);
         caseBountyTreasury += remainder;
         // forge-lint: disable-next-line(reentrancy-events)
-        emit CaseSettled(caseId, c.outcome, pool, correctStake, remainder, 0);
+        emit CaseSettled(caseId, c.outcome, pool, correctStake, remainder, rolledIn, 0);
     }
 
     function withdrawRefund() external {
