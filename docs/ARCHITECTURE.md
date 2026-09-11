@@ -163,6 +163,8 @@ B: net  7.33 → skim 1.47 to holders, keeps  5.87     5.87 / 11 = 53.33%
 
 A flat-percentage skim scales every winning juror's retained return by the same factor of 0.8, so it leaves the comparison between jurors unchanged.
 
+**On-chain, in tinybars.** The skim is 20% of the recorded net, rounded down: A's is 733,333,333 (of net 3,666,666,666) and B's is 146,666,666 (of 733,333,333). Each juror keeps exactly what is left, 2,933,333,333 and 586,666,667, so skim plus kept always equals net. The resolver holds each juror's skim until it is released to that juror's distribution address, which pays holders through ATS mass payout.
+
 The skim is a capital-distribution rule layered on top of performance tracking. It must not distort the track record. **The juror's track record is built from pre-skim figures.** Each case contributes its pre-skim net profit and capital deployed (for A here, 36.67 on 55, a 66.67% return), never the post-skim treasury credit.
 
 The tradeoff: the skim slows a juror's own treasury compounding after a win. In exchange, the share token has real distributed cash flow, rather than value that depends entirely on finding a future buyer. That is why the token needs a distribution mechanic at all.
