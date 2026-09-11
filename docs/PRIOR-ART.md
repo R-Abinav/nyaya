@@ -32,7 +32,7 @@ A flight-delay prediction market. Flight delay is one of our case types, so a ju
 ## Other adjacent mechanisms
 - **Numerai** lets a model's own creator stake on that model. It is self-staking, not a public market.
 - **Kleros** slashes human jurors who rule against the majority. Nyaya has no majority: a juror is scored against the reproducible real outcome, not against the other jurors, and a third party can take a position on a specific juror.
-- **Parimutuel betting** (racetrack tote boards) is the payout family our scoring belongs to. We use it to score jurors, not to take outside bets on outcomes. Cite it as the family, and never claim a stronger property for the mechanism than the wealth-neutrality derivation in `ARCHITECTURE.md`.
+- **Parimutuel betting** (racetrack tote boards) is the payout family our scoring belongs to. We use it to score jurors, not to take outside bets on outcomes. Cite it as the family, and never claim a stronger property for the mechanism than the derivation in `ARCHITECTURE.md` ("What stake size does and does not buy").
 
 ## What is actually ours
 
