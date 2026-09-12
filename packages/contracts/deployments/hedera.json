@@ -1,0 +1,15 @@
+{
+  "chainId": 296,
+  "contracts": {
+    "JurorTreasury": "0x2da722390d6cA31741619837cC7e9966cb00E39A",
+    "NyayaResolver": "0xeD67F63B90Af9c436B36A37f048f259568F05ac5",
+    "JurorShareMarket": "0xCa8f98130a054F7Ec42cf36416af9E4B892B0A28"
+  },
+  "ats": {
+    "factory": "0x00000000000000000000000000000000008c95cf",
+    "resolver": "0xba2d5fc2083a0b8f164c50e65d782087fba18e0a"
+  },
+  "shareTokens": {
+    "0xAD93109d571E527aA51Cc56A8E0682862866A69c": "0x5cCdEAdc7859cB6AB9d5a8bB763ce9Ac3dB1D86c"
+  }
+}
