@@ -1,11 +1,6 @@
 const { ensureAdminAccount, sendPrize } = require('./paymentService');
-const { ADMIN_SHARE_PERCENT } = require('../config/env');
 
-const adminSharePercent = Number(ADMIN_SHARE_PERCENT);
-if (!Number.isFinite(adminSharePercent) || adminSharePercent < 0 || adminSharePercent > 100) {
-  throw new Error('ADMIN_SHARE_PERCENT must be a number between 0 and 100');
-}
-const ADMIN_FEE_BPS = Math.round(adminSharePercent * 100);
+const ADMIN_FEE_BPS = 1000;
 
 function distributePrizes({ prediction, bets, winningOptionId }) {
   if (prediction.settlement) throw new Error('Prediction has already been settled');
@@ -20,18 +15,16 @@ function distributePrizes({ prediction, bets, winningOptionId }) {
   const winningContributionCents = winningBets.reduce((sum, bet) => sum + bet.amountCents, 0);
   const payouts = [];
   ensureAdminAccount();
-  const winningOptionHasNoBets = winningBets.length === 0;
-  // If nobody backed the admin-selected winner, the pool has no eligible
-  // winner and is transferred to the admin instead of blocking settlement.
-  const adminSettlementCents = winningOptionHasNoBets ? totalPoolCents : adminFeeCents;
-  const settledWinnerPoolCents = winningOptionHasNoBets ? 0 : winnerPoolCents;
+  if (totalPoolCents > 0 && winningBets.length === 0) {
+    throw new Error('Cannot settle a prediction without a bet on the winning outcome');
+  }
 
   if (winningBets.length && winningContributionCents > 0) {
     let distributedCents = 0;
     winningBets.forEach((bet, index) => {
       const payout = index === winningBets.length - 1
-        ? settledWinnerPoolCents - distributedCents
-        : Math.floor((settledWinnerPoolCents * bet.amountCents) / winningContributionCents);
+        ? winnerPoolCents - distributedCents
+        : Math.floor((winnerPoolCents * bet.amountCents) / winningContributionCents);
       distributedCents += payout;
       payouts.push({
         betId: bet.id,
@@ -48,17 +41,15 @@ function distributePrizes({ prediction, bets, winningOptionId }) {
 
   const adminTransaction = sendPrize({
     to: 'admin',
-    amountCents: adminSettlementCents,
-    metadata: { predictionId: prediction.id, winningOptionId, winningOptionHasNoBets },
+    amountCents: adminFeeCents,
+    metadata: { predictionId: prediction.id, winningOptionId },
   });
   ensureAdminAccount();
 
   return {
     totalPoolCents,
-    adminFeeCents: adminSettlementCents,
-    configuredAdminFeeCents: adminFeeCents,
-    winnerPoolCents: settledWinnerPoolCents,
-    winningOptionHasNoBets,
+    adminFeeCents,
+    winnerPoolCents,
     winningOptionId,
     payouts,
     adminTransaction,
