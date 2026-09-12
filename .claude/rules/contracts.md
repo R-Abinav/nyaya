@@ -8,7 +8,7 @@ paths:
 ## Layout
 - `src/jury/JurorTreasury.sol` — juror registry and custody of each juror's HBAR. Only the resolver can move money out.
 - `src/jury/` (resolver) — case lifecycle, commit-reveal, settlement, the Case Bounty Treasury, and the only caller of the treasury's drawdown functions.
-- `src/shares/` — ATS juror share tokens, the bonding curve that reads recorded return, the 70/30 purchase split, mass payout of the skim.
+- `src/shares/` — the ATS token interface and `JurorShareMarket`: return-scaled pricing, the 70/30 purchase split, the 2% fee, and the skim distribution.
 - `src/anchor/` — Sepolia only. Mirrors finalised results for indexing.
 - `test/` for forge tests, `script/` for deploy scripts.
 
@@ -57,14 +57,14 @@ Nothing is vendored. All contract code here is ours.
   - Incorrect or unrevealed juror: whole stake slashed into `P`.
   - `x402Spend` is the sum of the juror's withdrawals tagged with this case id. Settlement reads it only from that history, never from anything the juror submits.
   - `net = reward − x402Spend` if correct, `−stake − x402Spend` if not. Never drop the x402 term.
-  - `return = net / (stake + x402Spend)`. This is the per-case figure. The bonding curve reads the juror's cumulative return since genesis, `Σ net / Σ (stake + x402Spend)` over all its settled cases, pre-skim. Store it as two per-juror running totals: signed cumulative net and cumulative capital. Never a mean of per-case percentages, and no sliding window.
+  - `return = net / (stake + x402Spend)`. This is the per-case figure. Return-scaled pricing reads the juror's cumulative return since genesis, `Σ net / Σ (stake + x402Spend)` over all its settled cases, pre-skim. Store it as two per-juror running totals: signed cumulative net and cumulative capital. Never a mean of per-case percentages, and no sliding window.
   - Skim: `skim = floor(net × SKIM_BPS / 10000)`, with `SKIM_BPS = 2000`, on positive net only. No skim on a loss, including a correct juror that spent more than it won.
     - The juror's treasury is credited `reward − skim`. It is never an independently computed 80%, so skim plus what's kept always adds back to the net exactly.
     - The skim is held per juror in `pendingDistribution`. `releaseDistribution(juror)` is permissionless and sends it only to that juror's `distributionAddress`, which the operator sets once. That address is what feeds ATS mass payout to holders, and it is wired up when the shares are issued.
     - `Skimmed(caseId, juror, skim, retainedNet)` is emitted separately from `JurorSettled`.
     - **The track record is pre-skim.** `cumulativeNet`, `returnBps` and `JurorSettled.net` never subtract the skim. There is a test for exactly this.
   - No correct jurors: return the bounty to its source and add the slashed stakes to `rolloverPool` and set `rolloverUpdatedAt`. The rollover joins the pool of the next case that settles with a correct juror and has `commitDeadline > rolloverUpdatedAt`. A case whose commits closed before the rollover existed never receives it. `CaseSettled` reports `rolledIn` and `rolledOut` separately. External openers are credited to `refundOf` and pull the money with `withdrawRefund()`, never pushed, so a reverting opener can't block settlement. Treasury-sourced bounties go back to `caseBountyTreasury`.
-  - `returnBps(juror)` = `cumulativeNet × 10000 / cumulativeCapital`, rounded toward zero. This is what the bonding curve reads.
+  - `returnBps(juror)` = `cumulativeNet × 10000 / cumulativeCapital`, rounded toward zero. This is what the price reads.
   - Rounding: every payout is rounded down to the tinybar. Whatever is left of the pool after paying correct jurors goes to the Case Bounty Treasury, never to an individual juror. The skim is `floor(net × 20 / 100)` and the treasury credit is `net − skim`, so the skim leaves no remainder.
 - **Treasury drawdown paths.** `JurorTreasury` has exactly three ways money leaves a juror's balance, all resolver-only:
   - `lockStake`
@@ -76,8 +76,14 @@ Nothing is vendored. All contract code here is ours.
 - **x402 withdrawal path.** A capped, rate-limited withdrawal from a juror's treasury to its hot wallet, tagged with a case id at withdrawal time. The withdrawn amount counts as that case's `x402Spend`, and this is the only source settlement uses for spend. This is a documented trust leak: the contract cannot verify where the money went after it leaves.
 
 ## Share rules
-- A share purchase splits its trade value 70% to the juror's treasury in the resolver and 30% to the curve reserve. Redemptions pay out only from the reserve.
+- A share purchase splits its trade value 70% to the juror's treasury in the resolver and 30% to the redemption reserve. Redemptions pay out only from the reserve.
 - A 2% fee on trade value is charged on top of every trade: added to what a buyer pays, subtracted from what a seller receives. It accrues to the Case Bounty Treasury in the resolver. It is never carved out of the 70/30 split, so keep the fee and the split as separate code paths acting on separate amounts.
+- **Pricing is return-scaled, with no supply term:** `price = max(BASE_PRICE × (10000 + returnBps) / 10000, MIN_PRICE)`, reading the resolver's cumulative pre-skim `returnBps`. Never add a supply term, and never call it a bonding curve. A supply term would make price track trading volume as well as judgment quality.
+- Redemptions are paid only from that juror's own reserve, at the current price. A sale the reserve cannot cover reverts in full; never part-pay it and never touch another juror's reserve.
+- **ATS does the compliance blocking. We never repeat it.** Registering a juror's token adds that juror's key and hot wallet to the token's control list (needs `ROLE_CONTROL_LIST`), and ATS's own `mint` compliance check then rejects purchases from them with `AccountIsBlocked`. Do not add a matching check in our market: ours would fire first, and ATS's compliance registry would become decorative rather than load-bearing, which is the opposite of what the Hedera track rewards and of what `SPONSOR-REQUIREMENTS.md` claims.
+- Tests for blocking must assert the specific ATS error (`AccountIsBlocked` with the blocked address), never just that the call reverted. A bare "it reverts" assertion passes for unrelated reasons and proves nothing about ATS.
+- The market needs three roles on each juror's token: `ROLE_ISSUER` to mint on a buy, `ROLE_CONTROLLER` to burn on a sell, and `ROLE_CONTROL_LIST` to register the blocks. ATS checks roles before compliance, so a missing role surfaces as `AccountHasNoRoles`.
+- **`MockAtsToken` is for iteration speed only; it is not evidence.** It mirrors ATS v8.0.0's modifiers, error selectors and their evaluation order, and it must keep mirroring them: a mock that blocks correctly but reverts differently hides exactly the bug class it exists to catch. The evidence is a real ATS token on Hedera testnet with recorded transaction hashes for a successful third-party buy and a rejected buy from each juror-owned address. Forking is not an option: Hashio rejects the EIP-1898 block-hash parameters forge's forking depends on, tested directly, the same limitation that split the deploy path in two.
 - A juror's own key and hot wallet must be blocked from holding that juror's shares. This is the anti-wash-trading control and it is a judged feature, not an optional guard.
 
 ## Events

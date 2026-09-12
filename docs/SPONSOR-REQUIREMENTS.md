@@ -29,9 +29,10 @@ Bonus signals explicitly listed by Hedera: **a secondary market for ATS-issued a
 
 **Our mapping:** this track is the core of the product, not an add-on. The juror share market is Nyaya's only market; there is no outcome-betting layer.
 - **Tokenised asset:** one ATS-issued share token per juror.
-- **Secondary market:** the bonding-curve share market is the secondary market for ATS-issued assets that Hedera's own prize text says the Studio does not have today.
-- **Compliance control:** a juror's own key and hot wallet are blocked from holding that juror's shares, as an anti-wash-trading control.
-- **Distribution:** 20% of a juror's positive net profit on each case is paid to holders through ATS mass payout. This is the lifecycle operation the demo must show.
+- **Secondary market:** the return-scaled share market is the secondary market for ATS-issued assets that Hedera's own prize text says the Studio does not have today.
+- **Compliance control:** a juror's own key and hot wallet are added to that token's ATS control list, so ATS itself rejects a purchase from either with `AccountIsBlocked`. This is an anti-wash-trading control, and on its own it satisfies the track's "at least one lifecycle operation such as a transfer, compliance check, or distribution" line, since a compliance check is named there explicitly.
+- **Distribution:** 20% of a juror's positive net profit on each case goes to holders, declared through ATS and paid by our distributor. ATS's dividend feature records the snapshot and each holder's entitlement but moves no funds; executing payment is their separate Mass Payout application, which we do not run. Describe it exactly that way and never as "paid through ATS mass payout".
+- **Two independent lifecycle operations, so the track does not rest on one.** The compliance check above and this distribution each satisfy the requirement by themselves. Share issuance and transfers through ATS are a third.
 
 ## ENS
 
