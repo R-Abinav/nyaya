@@ -2,7 +2,7 @@
 
 ## One market
 
-Nyaya has one market: the juror share market. Each of three AI jurors has an ATS-issued share token, priced on a bonding curve that reads the juror's recorded return on capital. Buying shares is a long position on that juror's future performance. Holders receive 20% of the juror's net profit on every winning case through ATS mass payout.
+Nyaya has one market: the juror share market. Each of three AI jurors has an ATS-issued share token, priced from the juror's recorded return on capital. Buying shares is a long position on that juror's future performance. Holders receive 20% of the juror's net profit on every winning case, declared through ATS and paid by our distributor.
 
 Cases exist only to generate track records. Nobody bets on how a case resolves. There is no outcome token and no AMM.
 
@@ -11,7 +11,7 @@ Cases exist only to generate track records. Nobody bets on how a case resolves. 
 | What | Chain | Reason |
 |---|---|---|
 | Resolver: juror treasuries, commit-reveal, stakes, settlement | Hedera testnet | Sub-cent fixed-USD fees make many small per-investigation payments viable; three-second finality suits fast settlement |
-| ATS juror shares and their bonding-curve market | Hedera testnet | Asset Tokenization Studio lives on Hedera |
+| ATS juror shares and their return-scaled share market | Hedera testnet | Asset Tokenization Studio lives on Hedera |
 | Evidence Gateway x402 settlement | Hedera testnet | Settled through the Blocky402 facilitator |
 | ENSv2 juror subnames, Enhanced Access Control roles, score record | Sepolia | ENSv2 beta only exists on Sepolia |
 | Anchor contract and subgraph | Sepolia | Hedera has no hosted Subgraph Studio support |
@@ -154,7 +154,7 @@ Both correct jurors spent 10% of their stake on evidence (α = 0.1), so the form
 
 ### Shareholder skim
 
-After scoring, 20% of each juror's positive net profit for the case goes to that juror's shareholders through ATS mass payout. The remaining 80% goes to the juror's treasury. There is no skim on a negative net profit. Continuing the example:
+After scoring, 20% of each juror's positive net profit for the case goes to that juror's shareholders, declared through ATS and paid by our distributor. The remaining 80% goes to the juror's treasury. There is no skim on a negative net profit. Continuing the example:
 
 ```
 A: net 36.67 → skim 7.33 to holders, keeps 29.33    29.33 / 55 = 53.33%
@@ -163,7 +163,7 @@ B: net  7.33 → skim 1.47 to holders, keeps  5.87     5.87 / 11 = 53.33%
 
 A flat-percentage skim scales every winning juror's retained return by the same factor of 0.8, so it leaves the comparison between jurors unchanged.
 
-**On-chain, in tinybars.** The skim is 20% of the recorded net, rounded down: A's is 733,333,333 (of net 3,666,666,666) and B's is 146,666,666 (of 733,333,333). Each juror keeps exactly what is left, 2,933,333,333 and 586,666,667, so skim plus kept always equals net. The resolver holds each juror's skim until it is released to that juror's distribution address, which pays holders through ATS mass payout.
+**On-chain, in tinybars.** The skim is 20% of the recorded net, rounded down: A's is 733,333,333 (of net 3,666,666,666) and B's is 146,666,666 (of 733,333,333). Each juror keeps exactly what is left, 2,933,333,333 and 586,666,667, so skim plus kept always equals net. The resolver holds each juror's skim until it is released to that juror's distribution address, which pays holders against the ATS snapshot.
 
 The skim is a capital-distribution rule layered on top of performance tracking. It must not distort the track record. **The juror's track record is built from pre-skim figures.** Each case contributes its pre-skim net profit and capital deployed (for A here, 36.67 on 55, a 66.67% return), never the post-skim treasury credit.
 
@@ -176,12 +176,29 @@ The tradeoff: the skim slows a juror's own treasury compounding after a win. In 
 
 ## Treasury and capital flows
 
-- **Share purchases split 70/30.** 70% of every share purchase goes into the juror's operating treasury and 30% stays in the curve reserve for redemptions. This is deliberately biased toward keeping agents funded to do their job, over perfect exit liquidity for sellers. Redemptions are limited to what the reserve holds.
+- **Share purchases split 70/30.** 70% of every share purchase goes into the juror's operating treasury and 30% stays in the redemption reserve for redemptions. This is deliberately biased toward keeping agents funded to do their job, over perfect exit liquidity for sellers. Redemptions are limited to what the reserve holds.
 - **Each juror's treasury is held in `JurorTreasury`, and only the resolver can move money out of it.** Anyone can fund a juror. The juror's own key has no withdraw function. Money leaves in exactly three ways, all triggered by the resolver: locking a stake when the juror commits, slashing that stake when the juror is wrong or doesn't reveal, and the x402 withdrawal. A locked stake can also be returned to the juror (a correct ruling, or a cancelled case). x402 payments leave through a capped, rate-limited withdrawal path to the juror's hot wallet. Every withdrawal is tagged with a case id at withdrawal time, and the withdrawn amount counts as that case's x402 spend. Settlement reads spend only from this tagged history, and the reveal has no spend field. That keeps spend on-chain rather than self-reported, which matters because under-reporting spend would inflate the return the share price tracks. This withdrawal path is a documented trust leak, not a solved problem: see limitations.
 - **Genesis is equal.** All three jurors start with the same treasury. Unequal starting capital would make the demo show differentiation by wealth rather than by skill.
-- **The share price tracks cumulative return.** The bonding curve reads the juror's return since genesis, computed as total pre-skim net profit across all its settled cases divided by total capital deployed (stake plus x402 spend) across those cases.
+- **The share price tracks cumulative return.** Return-scaled pricing reads the juror's return since genesis, computed as total pre-skim net profit across all its settled cases divided by total capital deployed (stake plus x402 spend) across those cases.
   - **Not a plain mean of per-case percentages.** A plain mean would let a large percentage swing on a tiny stake count as much as a case where real capital was at risk. Winning 200% on a 1 HBAR stake and then losing 100% on a 100 HBAR stake averages to +50%. The capital-weighted figure is (2 − 100) / 101 ≈ −97%, which is what actually happened to the money.
   - **Not a rolling window.** At the number of cases a hackathon actually runs, a window would rarely differ from the cumulative figure. Cumulative also needs simpler resolver state: two running totals per juror instead of a maintained sliding window. Revisit this if the platform ever runs at a scale where early cases meaningfully dilute recent performance.
+
+### Return-scaled pricing, not a bonding curve
+
+```
+price = max(BASE_PRICE × (10000 + returnBps) / 10000, MIN_PRICE)
+```
+
+`returnBps` is the cumulative pre-skim figure above. `MIN_PRICE` is a tenth of `BASE_PRICE`, so a juror that has lost everything it deployed still has a positive, tradeable price instead of a price of zero.
+
+**There is no supply term, and the label matters.** A conventional bonding curve raises price as supply grows, which would make a juror's price reflect how much it has been traded as well as how well it judges. A popular but mediocre juror would then price above a sharp but unnoticed one, which breaks the one claim the whole product rests on: that a juror's share price tracks its judgment quality. Since price does not rise with supply, this is not a bonding curve in the conventional sense, and calling it one would be the same kind of borrowed credibility as "proper scoring rule" or an unqualified "wealth-neutral". Call it return-scaled pricing.
+
+**What this means for the 70/30 split and the redemption reserve.** The reserve receives 30% of each purchase's trade value, and redemptions are paid only from it, at the current price. Those two facts do not line up in general:
+
+- If a juror's return rises after people buy, buying back the same shares costs more than the 30% collected for them.
+- If its return falls, redemptions are cheaper than the reserve collected, and the reserve holds a surplus.
+
+So a shortfall is a real, reachable state, not a theoretical one. When the reserve cannot cover a sale at the current price, the sale reverts and the seller keeps the shares; nothing is part-paid and no other juror's reserve is touched. The reserve is deliberately per juror. This is the known cost of the 70/30 split's bias toward keeping agents funded, and it is named in the limitations table below.
 
 ### Case Bounty Treasury
 
@@ -194,7 +211,7 @@ This fee accrues to the Case Bounty Treasury.
 The fee and the 70/30 split are two separate mechanisms acting on different parts of a trade. The 70/30 split divides the trade value between the juror's treasury and the redemption reserve. The fee sits outside the trade value and never enters either pool.
 
 ```
-buy,  trade value 100:  buyer pays 102   →  70 to juror treasury, 30 to curve reserve, 2 to Case Bounty Treasury
+buy,  trade value 100:  buyer pays 102   →  70 to juror treasury, 30 to redemption reserve, 2 to Case Bounty Treasury
 sell, trade value 50:   reserve pays 50  →  49 to seller, 1 to Case Bounty Treasury
 ```
 
@@ -239,7 +256,12 @@ This stops a juror from inflating its own public reputation record, which would 
 
 **Resolver (`packages/contracts/src/jury/`, Hedera).** Sole controller of the juror treasury, the Case Bounty Treasury and the operator-gated function that opens cases from it, the case lifecycle, commit-reveal, stake locking, operator outcome submission with evidence CID, settlement math, skim routing, the tagged x402 withdrawal path, and the per-juror return record. Emits an event for every state change the subgraph needs.
 
-**Juror shares (`packages/contracts/src/shares/`, Hedera).** ATS-issued share token per juror, a bonding curve that reads recorded return, the 70/30 purchase split, the 2% trade fee forwarded to the Case Bounty Treasury, the compliance control blocking a juror's own addresses from holding its shares, and mass payout of the skim to holders.
+**Juror shares (`packages/contracts/src/shares/`, Hedera).** One ATS security token per juror, issued through Asset Tokenization Studio, plus `JurorShareMarket`: return-scaled pricing, the 70/30 purchase split, the 2% trade fee forwarded to the Case Bounty Treasury, and the skim distribution. What ATS itself does here, verified against its v8.0.0 source:
+
+- **Buying mints, selling burns, through ATS.** The market holds `ROLE_ISSUER` to mint and `ROLE_CONTROLLER` to burn on each juror's token.
+- **The compliance registry does the blocking, not us.** When a juror's token is registered, the market adds that juror's own key and its hot wallet to the token's control list, using `ROLE_CONTROL_LIST`. ATS's `mint` runs its own compliance check on the recipient, so a purchase from either address reverts inside ATS with `AccountIsBlocked`. The market deliberately does not repeat that check: a second check would fire first and leave ATS's compliance registry decorative.
+- **Distributions are declared through ATS and paid by our distributor.** ATS's dividend feature records a record date, a snapshot and per-holder entitlements, but no ATS contract transfers funds. Executing the payment is their separate Mass Payout application, a Postgres-backed service we deliberately do not run. So the skim is declared on ATS, and our distributor pays HBAR against the ATS snapshot. Never write, say, or show "ATS mass payout paid the holders".
+- **The identity gate stays permissive for the demo.** ATS only enforces KYC when internal KYC is switched on for a token, so a judge can buy shares without an identity flow while the control list stays fully active.
 
 **Anchor (`packages/contracts/src/anchor/`, Sepolia).** Records finalised case results, including per-juror stake, spend, reward, net, return and skim, plus the outcome evidence CID. Deliberately minimal.
 
@@ -263,7 +285,7 @@ case opens with a bounty
   -> resolution time: operator runs the checker, pins evidence to IPFS, submits outcome + CID
      (if no outcome arrives within the 24h grace period: anyone cancels, stakes refunded in full, bounty to its source)
   -> settle: wrong jurors slashed, pool split by stake among correct jurors
-  -> net profit and return recorded; 20% of positive net skimmed to holders via ATS mass payout
+  -> net profit and return recorded; 20% of positive net skimmed to holders: declared through ATS, paid by our distributor
   -> share prices move on the updated return
   -> operator updates each juror's ENS score record
   -> result written to Sepolia anchor; subgraph indexes it
@@ -283,7 +305,8 @@ case opens with a bounty
 | Cancelled-case spend counts as a loss | A juror can be penalised for an operator failure, not a bad ruling. Accepted, because excluding it would let tracked return drift from the real treasury balance |
 | Correlated model failure | All three jurors run Nemotron. Differentiation comes from prompts and tool preferences |
 | Free-tier model availability | Tool-calling support and rate limits on OpenRouter's free Nemotron endpoint must be confirmed before the agent loop depends on them |
-| Exit liquidity | Only 30% of purchases stay in the redemption reserve. A rush of sellers can exceed it |
+| Exit liquidity, and reserve shortfall | Only 30% of purchases stay in the redemption reserve, and redemptions are paid at the current price. A rush of sellers, or a juror whose return rose after people bought, can exceed it. The sale then reverts rather than part-paying. See "Return-scaled pricing" above |
+| ATS declares distributions but does not pay them | ATS's dividend feature records a snapshot and per-holder entitlements; moving the money is its separate Mass Payout application, which we deliberately do not run. Our distributor pays against the ATS snapshot. Never describe this as ATS mass payout having paid |
 | ENSv2 write-path libraries are preview-only | Plan on direct contract calls via ethers against documented Sepolia addresses |
 | ATS feels heavy for a speculative token | Use what makes it ATS: the compliance control as an anti-wash-trading measure and mass payout as the real distribution mechanism. Keep the identity gate permissive during the demo so judges are not blocked |
 | Demo depends on a real clock | Pre-seed a case close to its resolution time. There is no admin override, since the operator reporting an outcome early would be a faked result |
@@ -296,4 +319,4 @@ case opens with a bounty
 
 ## Demo sequence
 
-The full loop on live testnet: a case opens with a bounty (never a coin-flip case), a juror visibly pays x402 for real data, all three commit, then reveal, the checker's outcome is reported with its IPFS evidence CID, the wrong juror is slashed and the pool splits by stake on screen, the skim pays out to holders through ATS mass payout, juror share prices move on the Confidence Ticker, the ENS score record updates, and an Ask Nyaya query reflects the new state seconds later. Then hand the judge the keyboard for one live Ask Nyaya question.
+The full loop on live testnet: a case opens with a bounty (never a coin-flip case), a juror visibly pays x402 for real data, all three commit, then reveal, the checker's outcome is reported with its IPFS evidence CID, the wrong juror is slashed and the pool splits by stake on screen, the skim pays out to holders against an ATS-declared snapshot, juror share prices move on the Confidence Ticker, the ENS score record updates, and an Ask Nyaya query reflects the new state seconds later. Then hand the judge the keyboard for one live Ask Nyaya question.

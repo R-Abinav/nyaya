@@ -10,7 +10,7 @@ paths:
 - Mappings are AssemblyScript, not TypeScript. It looks similar and is not. No closures, no `any`, no spread, explicit types everywhere, use the generated types from `graph codegen`.
 - Index the Sepolia anchor contract. Never attempt to index Hedera; it is not supported and that is why the anchor exists.
 - Rebuild derived state from event deltas inside the mapping. No `eth_call` per record. If a value cannot be derived from events, add an event to the anchor contract rather than reaching for an RPC call.
-- Entities the UI and MCP server need: Juror, Case, Verdict (one per juror per case: ruling, confidence, stake, x402 spend, reward, net, return, skim, evidence-trail CID), ReturnCheckpoint (cumulative pre-skim net ÷ cumulative capital deployed since genesis, which the bonding curve reads; never a mean of per-case returns), ShareTrade, Distribution. Keep IDs stable and predictable.
+- Entities the UI and MCP server need: Juror, Case, Verdict (one per juror per case: ruling, confidence, stake, x402 spend, reward, net, return, skim, evidence-trail CID), ReturnCheckpoint (cumulative pre-skim net ÷ cumulative capital deployed since genesis, which the price reads; never a mean of per-case returns), ShareTrade, Distribution. Keep IDs stable and predictable.
 - The subgraph holds full case-by-case history. ENS holds only each juror's current score, so never treat ENS as a history source.
 - Run `graph codegen` after every schema change before touching mappings.
 

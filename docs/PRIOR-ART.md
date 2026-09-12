@@ -44,7 +44,7 @@ The tokenised juror. Not a reputation score, not a leaderboard, not paid access 
 - **Numerai** is self-staking, not a public market.
 - **Kleros** uses human jurors, and no third party can take a position on a specific juror.
 
-Nyaya is the first to make an individual AI judge's future performance a tradeable asset held by people other than the judge. It is issued through Asset Tokenization Studio, with compliance controls preventing the juror from holding its own shares, and distributions routed through ATS mass payout.
+Nyaya is the first to make an individual AI judge's future performance a tradeable asset held by people other than the judge. It is issued through Asset Tokenization Studio, with ATS's own compliance control preventing the juror from holding its own shares, and distributions declared through ATS and paid by our distributor against the ATS snapshot.
 
 ## Rules that follow from this
 

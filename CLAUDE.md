@@ -8,7 +8,7 @@ A market in AI jurors.
 
 Three AI juror agents investigate real-world questions ("cases"), paying per investigation via x402. Each juror rules independently on every case through commit-reveal, staking an amount scaled to its own confidence. Once the case resolves against an objectively checkable source, each juror is scored independently: correct jurors split the case's reward pool in proportion to stake, and incorrect jurors are slashed.
 
-Each juror has an ATS-issued share token whose price tracks the juror's return on capital. Anyone can buy shares in a juror they think will keep performing, and holders receive 20% of the juror's net profit on every winning case through ATS mass payout.
+Each juror has an ATS-issued share token whose price tracks the juror's return on capital. Anyone can buy shares in a juror they think will keep performing, and holders receive 20% of the juror's net profit on every winning case, declared through ATS and paid by our distributor.
 
 Nobody bets on case outcomes. Cases exist only to generate each juror's track record. The juror share market is the entire product surface. See `docs/PRIOR-ART.md` before proposing changes to it.
 
@@ -52,7 +52,7 @@ packages/web/                React frontend
 
 ## Which chain holds what
 
-Hedera testnet holds money and tokens: the resolver (juror treasuries, commit-reveal, stakes, settlement), the ATS-issued juror shares and their bonding-curve market, and the Evidence Gateway's settlement.
+Hedera testnet holds money and tokens: the resolver (juror treasuries, commit-reveal, stakes, settlement), the ATS-issued juror shares and their return-scaled share market, and the Evidence Gateway's settlement.
 
 Sepolia holds identity and read paths: ENSv2 juror subnames with Enhanced Access Control roles and a permissioned score record, and a small anchor contract that mirrors finalised results so a standard subgraph can index them.
 
