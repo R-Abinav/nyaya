@@ -24,6 +24,35 @@ interface IAtsToken {
     function totalSupply() external view returns (uint256);
 }
 
+/// ATS's dividend corporate action. It records a snapshot and computes entitlements; it never moves money.
+/// Paying is ATS's separate Mass Payout application, which Nyaya does not run, so our distributor pays
+/// against these figures. Shapes from asset-tokenization-contracts v8.0.0.
+interface IAtsDividends {
+    struct Dividend {
+        uint256 recordDate;
+        uint256 executionDate;
+        uint256 amount;
+        uint8 amountDecimals;
+    }
+
+    /// Entitlement as an exact fraction: the holder is owed numerator / denominator.
+    struct DividendAmountFor {
+        uint256 numerator;
+        uint256 denominator;
+        bool recordDateReached;
+    }
+
+    /// ROLE_CORPORATE_ACTION. Requires recordDate != 0 and executionDate >= recordDate; a record date that has
+    /// already passed is allowed, so a dividend can be claimable immediately.
+    function setDividend(Dividend calldata newDividend) external returns (uint256 dividendId_);
+
+    /// numerator = balanceAtSnapshot x amount / 10^decimals, denominator = 10^amountDecimals.
+    function getDividendAmountFor(uint256 dividendId, address account)
+        external
+        view
+        returns (DividendAmountFor memory);
+}
+
 /// Role identifiers from ATS `contracts/constants/roles.sol` v8.0.0.
 library AtsRoles {
     bytes32 internal constant ISSUER = 0x5eeaf5602c75bf26e73b5206d0bd6ee82f621166255e5fd73cc06bc7bd84a95f;
