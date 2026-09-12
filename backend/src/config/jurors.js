@@ -200,13 +200,13 @@ function getJuror(jurorId) {
   if (!juror) {
     throw new Error(`Unknown juror: ${jurorId}. Valid jurors: ${Object.keys(jurors).join(', ')}`);
   }
-
-  function normalizeJurorId(jurorId) {
-    return typeof jurorId === 'string' && jurorId.endsWith('_model')
-      ? jurorId.slice(0, -6)
-      : jurorId;
-  }
   return juror;
+}
+
+function normalizeJurorId(jurorId) {
+  return typeof jurorId === 'string' && jurorId.endsWith('_model')
+    ? jurorId.slice(0, -6)
+    : jurorId;
 }
 
 /**
