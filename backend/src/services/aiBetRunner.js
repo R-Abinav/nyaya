@@ -1,13 +1,15 @@
 const crypto = require('crypto');
 const { OPENROUTER_API_KEY, OPENROUTER_API_URL, OPENROUTER_MODEL } = require('../config/env');
 const { getJuror, getAllJurorIds } = require('../config/jurors');
-const { readPrediction, placeAgentBet, tools } = require('./aiBettingTools');
+const { executeAgentTool, tools } = require('./aiBettingTools');
+const logger = require('./logger');
 
 const runs = new Map();
 
 function emit(run, modelId, type, data = {}) {
   const event = { runId: run.id, modelId, type, timestamp: new Date().toISOString(), data };
   run.events.push(event);
+  logger.ai(type.toUpperCase(), { runId: run.id, modelId, predictionId: run.predictionId, ...data });
   for (const listener of run.listeners) listener(event);
 }
 
@@ -43,6 +45,8 @@ async function runAgent(run, predictionId, modelId) {
     { role: 'user', content: `Analyze prediction ${predictionId}, read it with the tool, and place your independent bet.` },
   ];
   emit(run, modelId, 'model_started', { modelName: juror.name, status: 'starting' });
+  let apiCost = 0;
+  let betStakeCents = 0;
   let finalMessage;
   try {
     for (let iteration = 0; iteration < 4; iteration += 1) {
@@ -55,17 +59,15 @@ async function runAgent(run, predictionId, modelId) {
         const name = toolCall.function.name;
         const args = JSON.parse(toolCall.function.arguments || '{}');
         emit(run, modelId, 'tool_call_started', { tool: name, args, status: 'running' });
-        let result;
-        if (name === 'read_prediction') {
-          result = readPrediction(args.predictionId);
-        } else if (name === 'place_prediction_bet') {
-          emit(run, modelId, 'payment_started', { tool: name });
-          result = await placeAgentBet(args);
+        const toolResult = await executeAgentTool({ name, args, predictionId, modelId });
+        apiCost += toolResult.cost;
+        const result = toolResult.result;
+        if (name === 'place_prediction_bet') {
+          betStakeCents = Number(args.amountCents);
           emit(run, modelId, 'payment_completed', { status: result.payment?.approved ? 'approved' : 'failed', transaction: result.transaction });
-        } else {
-          throw new Error(`Unsupported betting tool: ${name}`);
+          emit(run, modelId, 'bet_placed', { optionId: args.optionId, amountCents: betStakeCents, status: 'completed' });
         }
-        emit(run, modelId, 'tool_call_completed', { tool: name, status: 'completed', result });
+        emit(run, modelId, 'tool_call_completed', { tool: name, status: 'completed', resultSummary: summarizeResult(name, result), cost: toolResult.cost });
         modelMessages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(result) });
       }
     }
@@ -73,9 +75,20 @@ async function runAgent(run, predictionId, modelId) {
     emit(run, modelId, 'model_completed', {
       status: 'completed',
       explanation: finalMessage.content || 'The model completed without an explanation.',
+      apiCost,
+      betStakeCents,
+      totalSpent: apiCost + betStakeCents / 100,
     });
   } catch (error) {
+    logger.error('AI_RUN_FAILED', { runId: run.id, modelId, predictionId, message: error.message, stack: error.stack });
     emit(run, modelId, 'model_error', { status: 'failed', error: error.message });
+  }
+
+  function summarizeResult(name, result) {
+    if (name === 'search_news') return `${result.articles?.length || 0} articles`;
+    if (name === 'get_price') return `ETH $${result.price}`;
+    if (name === 'place_prediction_bet') return `bet ${result.option?.label || result.optionId} for ${result.amountCents} cents`;
+    return 'prediction read';
   }
 }
 

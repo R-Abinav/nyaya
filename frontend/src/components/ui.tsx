@@ -10,3 +10,11 @@ export function Input(props: InputHTMLAttributes<HTMLInputElement>) { return <in
 export function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="grid gap-2 text-sm font-semibold text-ink">{label}{children}</label>; }
 export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: ReactNode }) { return <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div>{eyebrow && <p className="mb-2 text-xs font-bold uppercase tracking-[0.18em] text-vintage">{eyebrow}</p>}<h1 className="text-3xl font-bold tracking-tight text-ink sm:text-4xl">{title}</h1>{description && <p className="mt-2 max-w-2xl text-muted-foreground">{description}</p>}</div>{action}</div>; }
 export function StateMessage({ type, message, onRetry }: { type: 'loading' | 'empty' | 'error'; message: string; onRetry?: () => void }) { return <div className="rounded-2xl border border-dashed border-line bg-panel/60 p-8 text-center text-sm text-muted-foreground">{type === 'loading' && <span className="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent align-[-2px]" />}{message}{type === 'error' && onRetry && <div className="mt-4"><Button variant="secondary" onClick={onRetry}>Try again</Button></div>}</div>; }
+export function Dialog({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-evergreen/70 p-4" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-line bg-panel p-6 shadow-soft" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+      <div className="flex items-start justify-between gap-4"><h2 id="dialog-title" className="text-xl font-bold text-ink">{title}</h2><button type="button" onClick={onClose} aria-label="Close dialog" className="rounded-lg px-2 py-1 text-xl leading-none text-muted-foreground hover:bg-muted hover:text-ink focus:outline-none focus:ring-2 focus:ring-highlight">×</button></div>
+      {children}
+    </div>
+  </div>;
+}

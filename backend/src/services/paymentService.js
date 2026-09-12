@@ -4,6 +4,7 @@ const accounts = new Map();
 const transactions = [];
 const INITIAL_MODEL_BALANCE_CENTS = 50000;
 const { getAllJurorIds } = require('../config/jurors');
+const logger = require('./logger');
 
 function createTransaction({ type, from, to, amountCents, reason, metadata = {} }) {
   return {
@@ -66,6 +67,7 @@ function makePayment({ from, to, amountCents, reason, metadata }) {
   accounts.get(to).balanceCents += amountCents;
   const transaction = createTransaction({ type: 'payment', from, to, amountCents, reason, metadata });
   transactions.push(transaction);
+  logger.payment('PAYMENT_SETTLED', { ...transaction, metadata });
   return { ...transaction };
 }
 

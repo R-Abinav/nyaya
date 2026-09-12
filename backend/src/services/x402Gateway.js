@@ -1,4 +1,5 @@
 const { DUMMY_X402_COST_HBAR } = require('../config/env');
+const logger = require('./logger');
 
 /**
  * Temporary payment boundary for evidence calls.
@@ -17,7 +18,7 @@ async function approveEvidencePayment({ caseId, jurorId, toolName }) {
     throw new Error('caseId, jurorId, and toolName are required for payment approval');
   }
 
-  return {
+  const payment = {
     approved: true,
     mode: 'dummy',
     amount,
@@ -25,6 +26,8 @@ async function approveEvidencePayment({ caseId, jurorId, toolName }) {
     approvalId: `dummy-x402-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
     approvedAt: new Date().toISOString(),
   };
+  logger.payment('PAYMENT_APPROVED', { caseId, jurorId, toolName, amount: payment.amount, currency: payment.currency, approvalId: payment.approvalId });
+  return payment;
 }
 
 module.exports = {

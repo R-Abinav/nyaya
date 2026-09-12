@@ -1,7 +1,7 @@
 import { Component, FormEvent, useEffect, useState } from 'react';
 import { Link, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { Layout } from './components/layout';
-import { Badge, Button, Card, Field, Input, PageHeader, StateMessage } from './components/ui';
+import { Badge, Button, Card, Dialog, Field, Input, PageHeader, StateMessage } from './components/ui';
 import { jsonBody, request } from './lib/api';
 import type { Bet, Juror, Prediction } from './types';
 import { AiBetRunner } from './components/ai-bet-runner';
@@ -28,7 +28,7 @@ function Market() {
 
 function PredictionCard({ prediction, onStart }: { prediction: Prediction; onStart: () => void }) {
   const active = prediction.status === 'active' && !prediction.expired;
-  return <Card className="flex flex-col"><div className="flex items-start justify-between gap-3"><Badge tone={active ? 'success' : 'muted'}>{active ? 'Active' : prediction.winningOptionId ? 'Settled' : 'Expired'}</Badge><span className="text-right text-xs text-muted-foreground">{active ? 'Closes' : 'Closed'}<br />{new Date(prediction.expiresAt).toLocaleString()}</span></div><h2 className="mt-5 text-xl font-bold leading-snug">{prediction.statement}</h2><div className="mt-5 grid gap-2">{prediction.options.map(option => <div className="flex items-center justify-between rounded-xl bg-muted px-3 py-2.5 text-sm" key={option.id}><span>{option.label}</span><span className="font-semibold text-muted-foreground">{option.betCount ?? 0} bets</span></div>)}</div><div className="mt-auto flex items-center justify-between border-t border-line pt-5 text-sm text-muted-foreground"><span>Pool <b className="text-ink">${(prediction.totalPoolCents / 100).toFixed(2)}</b> · {prediction.totalBets} bets</span>{active && <Button className="!min-h-9 !px-3" onClick={onStart}>Start Bet</Button>}</div></Card>;
+  return <Card className="flex flex-col"><div className="flex items-start justify-between gap-3"><Badge tone={active ? 'success' : 'muted'}>{active ? 'Active' : prediction.winningOptionId ? 'Settled' : 'Expired'}</Badge><span className="text-right text-xs text-muted-foreground">{active ? 'Closes' : 'Closed'}<br />{new Date(prediction.expiresAt).toLocaleString()}</span></div><h2 className="mt-5 text-xl font-bold leading-snug">{prediction.statement}</h2><div className="mt-5 grid gap-2">{prediction.options.map(option => { const winner = option.id === prediction.winningOptionId; return <div className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-sm ${winner ? 'bg-success/15 text-success ring-1 ring-success/30' : 'bg-muted'}`} key={option.id}><span className="flex items-center gap-2">{option.label}{winner && <Badge tone="success">✓ Winner</Badge>}</span><span className={`font-semibold ${winner ? 'text-success' : 'text-muted-foreground'}`}>{option.betCount ?? 0} bets</span></div>; })}</div><div className="mt-auto flex items-center justify-between border-t border-line pt-5 text-sm text-muted-foreground"><span>Pool <b className="text-ink">${(prediction.totalPoolCents / 100).toFixed(2)}</b> · {prediction.totalBets} bets</span>{active && <Button className="!min-h-9 !px-3" onClick={onStart}>Start Bet</Button>}</div></Card>;
 }
 
 function Investigations() {
@@ -56,8 +56,14 @@ function Admin() {
   const [accounts, setAccounts] = useState<Array<{ accountId: string; role: string; balanceCents: number }>>([]);
   const [transactions, setTransactions] = useState<Array<{ type: string; from: string; to: string; amountCents: number }>>([]);
   const [listState, setListState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [ending, setEnding] = useState<Prediction>();
+  const [winningOptionId, setWinningOptionId] = useState('');
+  const [endError, setEndError] = useState('');
+  const [endingLoading, setEndingLoading] = useState(false);
   const headers = { 'x-admin-key': key };
 
   async function loadListings() {
@@ -66,15 +72,19 @@ function Admin() {
     catch (err) { setMessage(err instanceof Error ? err.message : 'Listings could not be loaded'); setListState('error'); }
   }
   async function loadProtected() {
-    setLoading(true);
-    try {
-      const [a, t] = await Promise.all([
-        request<{ accounts: typeof accounts }>('/admin/accounts', { headers }),
-        request<{ transactions: typeof transactions }>('/admin/transactions', { headers }),
-      ]);
-      setAccounts(a.accounts); setTransactions(t.transactions); setMessage('');
-    } catch (err) { setMessage(err instanceof Error ? err.message : 'Admin request failed'); }
-    finally { setLoading(false); }
+    await Promise.all([loadAccounts(), loadTransactions()]);
+  }
+  async function loadAccounts() {
+    setAccountsLoading(true);
+    try { setAccounts((await request<{ accounts: typeof accounts }>('/admin/accounts', { headers })).accounts); }
+    catch (err) { setMessage(err instanceof Error ? err.message : 'Accounts could not be loaded'); }
+    finally { setAccountsLoading(false); }
+  }
+  async function loadTransactions() {
+    setTransactionsLoading(true);
+    try { setTransactions((await request<{ transactions: typeof transactions }>('/admin/transactions', { headers })).transactions); }
+    catch (err) { setMessage(err instanceof Error ? err.message : 'Transactions could not be loaded'); }
+    finally { setTransactionsLoading(false); }
   }
   useEffect(() => { void loadListings(); }, []);
   async function create(e: FormEvent<HTMLFormElement>) {
@@ -90,10 +100,27 @@ function Admin() {
     catch (err) { setMessage(err instanceof Error ? err.message : 'Could not transfer funds'); }
   }
   async function end(prediction: Prediction) {
-    const winner = window.prompt(`Winning option ID:\n${prediction.options.map(o => `${o.id}: ${o.label}`).join('\n')}`);
-    if (!winner) return;
-    try { await request(`/admin/predictions/${encodeURIComponent(prediction.id)}/end`, { ...jsonBody({ winningOptionId: winner }), headers }); await loadListings(); }
-    catch (err) { setMessage(err instanceof Error ? err.message : 'Could not end listing'); }
+    setEnding(prediction);
+    setWinningOptionId('');
+    setEndError('');
+  }
+  async function finishEnding() {
+    if (!ending || !winningOptionId) {
+      setEndError('Select the winning option before finishing.');
+      return;
+    }
+    setEndingLoading(true);
+    setEndError('');
+    try {
+      await request(`/admin/predictions/${encodeURIComponent(ending.id)}/end`, { ...jsonBody({ winningOptionId }), headers });
+      await loadListings();
+      setEnding(undefined);
+      setWinningOptionId('');
+    } catch (err) {
+      setEndError(err instanceof Error ? err.message : 'Could not end listing');
+    } finally {
+      setEndingLoading(false);
+    }
   }
   return <>
     <PageHeader eyebrow="Restricted area" title="Admin console" description="Manage live listings, balances, transfers, and settlement." action={<Button variant="secondary" onClick={() => { void loadListings(); void loadProtected(); }} disabled={!key || loading}>Refresh protected data</Button>} />
@@ -101,10 +128,26 @@ function Admin() {
     {message && <div className="mb-6 rounded-xl border border-highlight/40 bg-highlight/15 px-4 py-3 text-sm">{message}</div>}
     <div className="grid gap-6 lg:grid-cols-2">
       <Card><h2 className="text-xl font-bold">Create listing</h2><form onSubmit={create} className="mt-5 grid gap-4"><Field label="Statement"><Input name="statement" required /></Field><Field label="Options, one per line"><textarea name="options" className="min-h-24 rounded-xl border border-line bg-canvas p-3 text-sm text-ink outline-none focus:border-primary" required /></Field><Field label="Expires at"><Input name="expiresAt" type="datetime-local" required /></Field><Button disabled={!key}>Add listing</Button></form></Card>
-      <Card><h2 className="text-xl font-bold">Listings</h2>{listState === 'loading' && <div className="mt-4"><StateMessage type="loading" message="Loading listings…" /></div>}{listState === 'error' && <div className="mt-4"><StateMessage type="error" message="Listings could not be loaded." onRetry={loadListings} /></div>}{listState === 'ready' && <div className="mt-4 divide-y divide-line">{predictions.length ? predictions.map(p => <div className="py-4" key={p.id}><div className="flex justify-between gap-3"><b className="text-sm">{p.statement}</b><Badge tone={p.status === 'active' ? 'success' : 'muted'}>{p.status ?? 'unknown'}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{p.totalBets} bets · ${(p.totalPoolCents / 100).toFixed(2)}</p>{p.status === 'active' && <Button variant="danger" className="mt-3 !min-h-9 !px-3 text-xs" onClick={() => end(p)}>End listing</Button>}</div>) : <StateMessage type="empty" message="No listings found." />}</div>}</Card>
-      <Card><h2 className="text-xl font-bold">Accounts & transfers</h2><div className="mt-4 divide-y divide-line">{accounts.map(a => <div className="flex justify-between py-3 text-sm" key={a.accountId}><span>{a.accountId} <span className="text-muted-foreground">· {a.role}</span></span><b>${(a.balanceCents / 100).toFixed(2)}</b></div>)}</div><form onSubmit={transfer} className="mt-5 grid gap-3 border-t border-line pt-5"><Field label="Destination account"><Input name="to" placeholder="skeptic" required /></Field><Field label="Amount (USD cents)"><Input name="amountCents" type="number" min="1" step="1" required /></Field><Button variant="secondary" disabled={!key}>Transfer funds</Button></form></Card>
-      <Card><h2 className="text-xl font-bold">Transactions</h2><div className="mt-4 divide-y divide-line">{transactions.map((t, i) => <div className="py-3 text-sm" key={`${t.type}-${i}`}><b>{t.type}</b><span className="text-muted-foreground"> · {t.from} → {t.to} · ${(t.amountCents / 100).toFixed(2)}</span></div>)}</div></Card>
+      <Card><div className="flex items-center justify-between"><h2 className="text-xl font-bold">Listings</h2><Button variant="secondary" className="!min-h-8 !px-3 text-xs" onClick={loadListings} disabled={listState === 'loading'}>↻ Refresh</Button></div>{listState === 'loading' && <div className="mt-4"><StateMessage type="loading" message="Loading listings…" /></div>}{listState === 'error' && <div className="mt-4"><StateMessage type="error" message="Listings could not be loaded." onRetry={loadListings} /></div>}{listState === 'ready' && <div className="mt-4 divide-y divide-line">{predictions.length ? predictions.map(p => <div className="py-4" key={p.id}><div className="flex justify-between gap-3"><b className="text-sm">{p.statement}</b><Badge tone={p.status === 'active' ? 'success' : 'muted'}>{p.status ?? 'unknown'}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{p.totalBets} bets · ${(p.totalPoolCents / 100).toFixed(2)}</p>{p.status === 'active' && <Button variant="danger" className="mt-3 !min-h-9 !px-3 text-xs" onClick={() => end(p)}>End listing</Button>}</div>) : <StateMessage type="empty" message="No listings found." />}</div>}</Card>
+      <Card><div className="flex items-center justify-between"><h2 className="text-xl font-bold">Accounts & transfers</h2><Button variant="secondary" className="!min-h-8 !px-3 text-xs" onClick={() => void loadAccounts()} disabled={accountsLoading || !key}>↻ Refresh</Button></div>{accountsLoading ? <div className="mt-4"><StateMessage type="loading" message="Loading accounts…" /></div> : <div className="mt-4 divide-y divide-line">{accounts.map(a => <div className="flex justify-between py-3 text-sm" key={a.accountId}><span>{a.accountId} <span className="text-muted-foreground">· {a.role}</span></span><b>${(a.balanceCents / 100).toFixed(2)}</b></div>)}</div>}<form onSubmit={transfer} className="mt-5 grid gap-3 border-t border-line pt-5"><Field label="Destination account"><Input name="to" placeholder="skeptic" required /></Field><Field label="Amount (USD cents)"><Input name="amountCents" type="number" min="1" step="1" required /></Field><Button variant="secondary" disabled={!key}>Transfer funds</Button></form></Card>
+      <Card><div className="flex items-center justify-between"><h2 className="text-xl font-bold">Transactions</h2><Button variant="secondary" className="!min-h-8 !px-3 text-xs" onClick={() => void loadTransactions()} disabled={transactionsLoading || !key}>↻ Refresh</Button></div>{transactionsLoading ? <div className="mt-4"><StateMessage type="loading" message="Loading transactions…" /></div> : <div className="mt-4 divide-y divide-line">{transactions.map((t, i) => <div className="py-3 text-sm" key={`${t.type}-${i}`}><b>{t.type}</b><span className="text-muted-foreground"> · {t.from} → {t.to} · ${(t.amountCents / 100).toFixed(2)}</span></div>)}</div>}</Card>
     </div>
+    {ending && <Dialog title="End listing" onClose={() => { if (!endingLoading) setEnding(undefined); }}>
+      <p className="mt-4 text-sm leading-6 text-muted-foreground">Choose the winning option for this prediction. This will finalize the listing and run the existing settlement flow.</p>
+      <div className="mt-4 rounded-xl bg-muted p-3 text-sm font-semibold text-ink">{ending.statement}</div>
+      <fieldset className="mt-5 grid gap-3">
+        <legend className="mb-1 text-sm font-semibold text-ink">Who won this prediction?</legend>
+        {ending.options.map(option => <label key={option.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 text-sm transition ${winningOptionId === option.id ? 'border-primary bg-primary/10 text-ink' : 'border-line hover:border-primary/50'}`}>
+          <input type="radio" name="winning-option" value={option.id} checked={winningOptionId === option.id} onChange={event => setWinningOptionId(event.target.value)} disabled={endingLoading} className="h-4 w-4 accent-primary" />
+          <span>{option.label}</span>
+        </label>)}
+      </fieldset>
+      {endError && <p role="alert" className="mt-4 rounded-xl bg-danger/10 px-3 py-2 text-sm text-danger">{endError}</p>}
+      <div className="mt-6 flex justify-end gap-3">
+        <Button variant="secondary" onClick={() => setEnding(undefined)} disabled={endingLoading}>Cancel</Button>
+        <Button variant="danger" onClick={() => void finishEnding()} disabled={endingLoading}>{endingLoading ? 'Finishing…' : 'Finish'}</Button>
+      </div>
+    </Dialog>}
   </>;
 }
 
