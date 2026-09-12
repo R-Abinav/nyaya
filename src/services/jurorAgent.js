@@ -165,12 +165,12 @@ Remember:
 - Stop when your ruling and profit-maximizing betting fraction are stable OR when more evidence won't improve them enough to justify the cost
 
 When ready to rule, use this exact format:
-Verdict: yes or no
+Chosen Outcome: <exact label or ID of one available outcome>
 Betting Fraction: <number from 0.0 to 1.0>
-Reasoning: <why this ruling is more likely>
+Reasoning: <why this outcome has the best risk-adjusted expected profit>
 Stop Reason: <why more paid news searches are not worth the expected profit improvement>
 
-The betting fraction is the fraction of your maximum stake allocation you choose to risk to maximize expected profit. It is not a confidence percentage. A poor NewsData query may return nothing, so choose q, qInTitle, and qInMeta keywords carefully and preserve the most important word order.`,
+The betting fraction is the fraction of your maximum stake allocation you choose to risk. It is not a confidence percentage and does not mean you can guarantee profit. A poor NewsData query may return nothing, so choose q, qInTitle, and qInMeta keywords carefully and preserve the most important word order.`,
     },
   ];
 
@@ -231,7 +231,7 @@ The betting fraction is the fraction of your maximum stake allocation you choose
     return {
       role: 'assistant',
       content: [
-        'Verdict: no',
+        'Chosen Outcome: undetermined',
         'Betting Fraction: 0.0',
         `Reasoning: Evidence was gathered, but the ruling model failed before completing its analysis (${error.message}).`,
         'Stop Reason: Further evidence is not justified after the model failure.',
@@ -285,17 +285,11 @@ function parseVerdict(content) {
     bettingFraction = Math.max(0, Math.min(1, fraction)); // Clamp between 0 and 1
   }
 
-  // Extract verdict
-  let verdict = 'no'; // default
-  if (lower.includes('verdict: yes') || lower.includes('verdict:yes')) {
-    verdict = 'yes';
-  } else if (lower.includes('verdict: no') || lower.includes('verdict:no')) {
-    verdict = 'no';
-  } else if (lower.match(/\byes\b/i) && !lower.match(/\bno\b/i)) {
-    verdict = 'yes';
-  }
+  const outcomeMatch = content.match(/chosen outcome[:\s]+(.+)/i) ||
+                       content.match(/selected outcome[:\s]+(.+)/i);
+  const selectedOutcome = outcomeMatch ? outcomeMatch[1].split(/\r?\n/)[0].trim() : 'undetermined';
 
-  return { verdict, bettingFraction };
+  return { verdict: selectedOutcome, selectedOutcome, bettingFraction };
 }
 
 /**

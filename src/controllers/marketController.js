@@ -1,13 +1,20 @@
 const {
   createPrediction,
   deletePrediction,
+  endPrediction,
   getPrediction,
   listBets,
   listPredictions,
-  placeBet,
   updatePrediction,
 } = require('../services/predictionMarketService');
-const { approveEvidencePayment } = require('../services/x402Gateway');
+const { placeAgentBet, readPrediction } = require('../services/aiBettingTools');
+const {
+  ensureAdminAccount,
+  getAccount,
+  listAccounts,
+  listTransactions,
+  transferFunds,
+} = require('../services/paymentService');
 
 function sendError(res, error) {
   const status = /not found/i.test(error.message) ? 404 : 400;
@@ -51,23 +58,64 @@ function remove(req, res) {
   }
 }
 
-async function bet(req, res) {
+function aiListing(req, res) {
   try {
-    const { predictionId } = req.params;
-    const { optionId, bettorId } = req.body;
-    const payment = await approveEvidencePayment({
-      caseId: predictionId,
-      jurorId: bettorId,
-      toolName: 'prediction_bet',
-    });
-    if (!payment.approved) throw new Error('Bet payment was not approved');
+    res.json({ prediction: readPrediction(req.params.predictionId) });
+  } catch (error) {
+    sendError(res, error);
+  }
+}
 
+async function aiBet(req, res) {
+  try {
+    const bet = await placeAgentBet({
+      predictionId: req.params.predictionId,
+      ...req.body,
+    });
+    res.status(201).json({ bet });
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+function end(req, res) {
+  try {
+    res.json({ prediction: endPrediction(req.params.predictionId, req.body.winningOptionId) });
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+function accounts(req, res) {
+  ensureAdminAccount();
+  res.json({ accounts: listAccounts() });
+}
+
+function account(req, res) {
+  try {
+    res.json({ account: getAccount(req.params.accountId) });
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+function transfer(req, res) {
+  try {
     res.status(201).json({
-      bet: placeBet({ predictionId, optionId, bettorId, payment }),
+      transaction: transferFunds({
+        from: 'admin',
+        to: req.body.to,
+        amountCents: req.body.amountCents,
+        metadata: { requestedBy: 'admin' },
+      }),
     });
   } catch (error) {
     sendError(res, error);
   }
+}
+
+function transactions(req, res) {
+  res.json({ transactions: listTransactions() });
 }
 
 function history(req, res) {
@@ -80,11 +128,17 @@ function allHistory(req, res) {
 
 module.exports = {
   allHistory,
-  bet,
+  account,
+  accounts,
+  aiBet,
+  aiListing,
   create,
   get,
   history,
   list,
   remove,
   update,
+  transfer,
+  transactions,
+  end,
 };

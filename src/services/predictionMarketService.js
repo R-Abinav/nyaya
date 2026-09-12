@@ -1,4 +1,6 @@
 const crypto = require('crypto');
+const { distributePrizes } = require('./prizeDistributionService');
+const { makePayment } = require('./paymentService');
 
 const MIN_OPTIONS = 3;
 const predictions = new Map();
@@ -56,6 +58,10 @@ function serializePrediction(prediction) {
       betCount: predictionBets.filter(bet => bet.optionId === option.id).length,
     })),
     totalBets: predictionBets.length,
+    totalPoolCents: predictionBets.reduce((sum, bet) => sum + bet.amountCents, 0),
+    status: prediction.status,
+    winningOptionId: prediction.winningOptionId || null,
+    settlement: prediction.settlement || null,
     expired: Date.parse(prediction.expiresAt) <= Date.now(),
   };
 }
@@ -84,6 +90,7 @@ function createPrediction({ statement, options, expiresAt }) {
     expiresAt: parseExpiry(expiresAt),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    status: 'active',
   };
   predictions.set(prediction.id, prediction);
   return serializePrediction(prediction);
@@ -127,10 +134,24 @@ function deletePrediction(predictionId) {
   predictions.delete(predictionId);
 }
 
-function placeBet({ predictionId, optionId, bettorId, payment }) {
+function endPrediction(predictionId, winningOptionId) {
   const prediction = predictions.get(predictionId);
   if (!prediction) throw new Error('Prediction not found');
-  if (Date.parse(prediction.expiresAt) <= Date.now()) {
+  if (prediction.settlement) throw new Error('Prediction has already been settled');
+
+  const predictionBets = bets.filter(bet => bet.predictionId === predictionId);
+  const settlement = distributePrizes({ prediction, bets: predictionBets, winningOptionId });
+  prediction.status = 'ended';
+  prediction.winningOptionId = winningOptionId;
+  prediction.settlement = { ...settlement, settledAt: new Date().toISOString() };
+  prediction.updatedAt = new Date().toISOString();
+  return serializePrediction(prediction);
+}
+
+function placeBet({ predictionId, optionId, bettorId, amountCents, payment }) {
+  const prediction = predictions.get(predictionId);
+  if (!prediction) throw new Error('Prediction not found');
+  if (prediction.status !== 'active' || Date.parse(prediction.expiresAt) <= Date.now()) {
     throw new Error('Prediction has expired');
   }
 
@@ -142,13 +163,26 @@ function placeBet({ predictionId, optionId, bettorId, payment }) {
   if (typeof bettorId !== 'string' || !bettorId.trim()) {
     throw new Error('bettorId is required');
   }
+  if (!Number.isInteger(amountCents) || amountCents <= 0) {
+    throw new Error('amountCents must be a positive integer');
+  }
+
+  const transaction = makePayment({
+    from: bettorId.trim(),
+    to: 'prediction-pool',
+    amountCents,
+    reason: 'prediction_bet',
+    metadata: { predictionId, optionId },
+  });
 
   const bet = {
     id: createId('bet'),
     predictionId,
     optionId,
     bettorId: bettorId.trim(),
+    amountCents,
     payment,
+    transaction,
     placedAt: new Date().toISOString(),
   };
   bets.push(bet);
@@ -167,6 +201,7 @@ function listBets({ predictionId } = {}) {
 module.exports = {
   createPrediction,
   deletePrediction,
+  endPrediction,
   getPrediction,
   listBets,
   listPredictions,

@@ -62,6 +62,7 @@ async function investigateWithAllJurors(req, res) {
         jurorId: investigation.jurorId,
         jurorName: investigation.jurorName,
         verdict: investigation.verdict,
+        selectedOutcome: investigation.selectedOutcome || investigation.verdict,
         bettingFraction: investigation.bettingFraction,
         stake,
         totalSpent: investigation.totalSpent,
@@ -86,7 +87,7 @@ async function investigateWithAllJurors(req, res) {
 
     results.forEach(result => {
       console.log(`\n${result.jurorName}:`);
-      console.log(`  Verdict: ${result.verdict}`);
+      console.log(`  Chosen outcome: ${result.selectedOutcome}`);
       console.log(`  Betting fraction: ${(result.bettingFraction * 100).toFixed(1)}% of treasury risked`);
       console.log(`  Stake: ${result.stake.toFixed(2)} HBAR`);
       console.log(`  Evidence Spend: ${result.totalSpent.toFixed(2)} HBAR`);
@@ -103,10 +104,10 @@ async function investigateWithAllJurors(req, res) {
       jurors: results,
       summary: {
         totalJurors: results.length,
-        verdicts: {
-          yes: results.filter(r => r.verdict === 'yes').length,
-          no: results.filter(r => r.verdict === 'no').length,
-        },
+        selectedOutcomes: results.reduce((counts, result) => {
+          counts[result.selectedOutcome] = (counts[result.selectedOutcome] || 0) + 1;
+          return counts;
+        }, {}),
         averageBettingFraction: (results.reduce((sum, r) => sum + r.bettingFraction, 0) / results.length).toFixed(3),
         totalToolCalls: results.reduce((sum, r) => sum + r.toolCallCount, 0),
         totalSpent: results.reduce((sum, r) => sum + r.totalSpent, 0).toFixed(2),
@@ -139,7 +140,7 @@ function getJurorInfo(req, res) {
 
   res.json({
     jurors,
-    description: 'All three jurors run NVIDIA Nemotron via OpenRouter. Differentiation comes from system prompts, evidence thresholds, and tool preferences.',
+    description: 'Three NVIDIA Nemotron AI jurors compare available prediction outcomes, choose one outcome each, and select a risk-adjusted betting fraction based on evidence and expected profit.',
   });
 }
 

@@ -18,7 +18,12 @@ function setMessage(message = '', isError = false) {
 }
 
 async function requestJson(url, options = {}) {
-  const response = await fetch(url, options);
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch (error) {
+    throw new Error('Nyaya server is not running. Start it with "npm run dev", then refresh this page.');
+  }
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
   return data;
@@ -39,19 +44,15 @@ function renderPredictions() {
     <article class="prediction-card">
       <h2>${escapeHtml(prediction.statement)}</h2>
       <p class="expiry">${prediction.expired ? 'Expired' : 'Expires'}: ${escapeHtml(formatExpiry(prediction.expiresAt))}</p>
-      <form class="bet-form" data-prediction-id="${escapeHtml(prediction.id)}">
-        <div class="options-list">
-          ${prediction.options.map(option => `
-            <div class="option-row">
-              <input id="${escapeHtml(prediction.id)}-${escapeHtml(option.id)}" type="radio" name="option-${escapeHtml(prediction.id)}" value="${escapeHtml(option.id)}" ${prediction.expired ? 'disabled' : ''} required />
-              <label for="${escapeHtml(prediction.id)}-${escapeHtml(option.id)}">${escapeHtml(option.label)}</label>
-              <span class="option-count">${Number(option.betCount || 0)} bets</span>
-            </div>
-          `).join('')}
-        </div>
-        <input name="bettorId" placeholder="Bettor or juror ID" ${prediction.expired ? 'disabled' : ''} required />
-        <button class="primary-button" type="submit" ${prediction.expired ? 'disabled' : ''}>${prediction.expired ? 'Closed' : 'Place bet'}</button>
-      </form>
+      <div class="options-list">
+        ${prediction.options.map(option => `
+          <div class="option-row">
+            <span>${escapeHtml(option.label)}</span>
+            <span class="option-count">${Number(option.betCount || 0)} bets</span>
+          </div>
+        `).join('')}
+      </div>
+      <p class="pool-summary">Pool: $${(Number(prediction.totalPoolCents || 0) / 100).toFixed(2)} · ${prediction.totalBets} total bets</p>
     </article>
   `).join('');
 }
@@ -85,63 +86,9 @@ async function loadHistory() {
   renderHistory(data.bets);
 }
 
-async function handleBet(event) {
-  event.preventDefault();
-  const form = event.target.closest('.bet-form');
-  if (!form) return;
-  const option = form.querySelector('input[name^="option-"]:checked');
-  const bettorId = form.elements.bettorId.value.trim();
-  if (!option || !bettorId) return;
-
-  const button = form.querySelector('button');
-  button.disabled = true;
-  setMessage('Requesting payment approval...');
-  try {
-    const data = await requestJson(`/predictions/${encodeURIComponent(form.dataset.predictionId)}/bets`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ optionId: option.value, bettorId }),
-    });
-    setMessage(`Bet placed through ${data.bet.payment.mode} payment approval.`);
-    await Promise.all([loadPredictions(), loadHistory()]);
-  } catch (error) {
-    setMessage(error.message, true);
-    button.disabled = false;
-  }
-}
-
-async function handleAdminCreate(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const expiresAt = new Date(form.elements.expiresAt.value).toISOString();
-  const options = form.elements.options.value.split('\n').map(option => option.trim()).filter(Boolean);
-  try {
-    await requestJson('/admin/predictions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-admin-key': form.elements.adminKey.value,
-      },
-      body: JSON.stringify({
-        statement: form.elements.statement.value.trim(),
-        options,
-        expiresAt,
-      }),
-    });
-    form.reset();
-    setMessage('Prediction created.');
-    await loadPredictions();
-  } catch (error) {
-    setMessage(error.message, true);
-  }
-}
-
 document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('refresh-btn').addEventListener('click', () => loadPredictions().catch(error => setMessage(error.message, true)));
   document.getElementById('history-refresh-btn').addEventListener('click', () => loadHistory().catch(error => setMessage(error.message, true)));
-  document.getElementById('prediction-list').addEventListener('submit', handleBet);
-  document.getElementById('admin-form').addEventListener('submit', handleAdminCreate);
-
   try {
     await Promise.all([loadPredictions(), loadHistory()]);
   } catch (error) {
