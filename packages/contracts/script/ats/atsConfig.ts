@@ -272,6 +272,40 @@ export function deployEquityInputs(abi: unknown[]): AbiComponent[] {
   return fragment.inputs;
 }
 
+type AbiEntry = { type: string; name?: string };
+
+/** Our own contracts' ABIs, from the forge build. Ground truth: never hand-write these. */
+export function artifactAbi(contractName: string): AbiEntry[] {
+  const path = resolve(CONTRACTS_ROOT, `out/${contractName}.sol/${contractName}.json`);
+  if (!existsSync(path)) throw new Error(`No artifact for ${contractName} at ${path}. Run forge build.`);
+  return (JSON.parse(readFileSync(path, "utf8")) as { abi: AbiEntry[] }).abi;
+}
+
+/** ATS's IAsset carries the whole token surface: ERC20 reads, roles, control list and dividends. */
+export function atsAssetAbi(): AbiEntry[] {
+  const require_ = createRequire(import.meta.url);
+  return (
+    require_("@hashgraph/asset-tokenization-contracts/artifacts/contracts/facets/IAsset.sol/IAsset.json") as {
+      abi: AbiEntry[];
+    }
+  ).abi;
+}
+
+/**
+ * Interface preflight, the same idea as assertMatchesAbi one level up: confirm every function a script intends
+ * to call actually exists on the target's ABI, before anything is sent. A missing name should fail offline, not
+ * partway through a run that has already spent gas.
+ */
+export function assertFunctionsExist(abi: AbiEntry[], required: string[], label: string): void {
+  const present = new Set(abi.filter((entry) => entry.type === "function").map((entry) => entry.name));
+  const missing = required.filter((name) => !present.has(name));
+  if (missing.length > 0) {
+    throw new Error(
+      `${label} does not expose: ${missing.join(", ")}\n  it does expose: ${[...present].sort().join(", ")}`,
+    );
+  }
+}
+
 /** Minimal ABIs: only what these scripts call. */
 export const FACTORY_ABI = [
   "function deployEquity((((address resolver,uint256 maxSupply,(bytes32 key,uint256 version) resolverProxyConfiguration,(string name,string symbol,string isin,uint8 decimals) erc20MetadataInfo,(bytes32 role,address[] members)[] rbacs,address[] externalPauses,address[] externalControlLists,address[] externalKycLists,address compliance,address identityRegistry,bool arePartitionsProtected,bool isMultiPartition,bool isControllable,bool isWhiteList,bool clearingActive,bool internalKycActivated,bool erc20VotesActivated) security,(bool votingRight,bool informationRight,bool liquidationRight,bool subscriptionRight,bool conversionRight,bool redemptionRight,bool putRight,uint8 dividendRight,bytes3 currency,uint256 nominalValue,uint8 nominalValueDecimals) equityDetails)) equityData,((uint8 regulationType,uint8 regulationSubType,(bool countriesControlListType,string listOfCountries,string info) additionalSecurityData)) factoryRegulationData) returns (address equityAddress_)",
@@ -316,9 +350,11 @@ export const MARKET_ABI = [
   "function reserveOf(address juror) view returns (uint256)",
 ];
 
+/** Prefer `artifactAbi("JurorTreasury")` for anything new; this stays for the scripts already written against it. */
 export const TREASURY_ABI = [
   "function registerJuror(address juror, address hotWallet)",
   "function hotWalletOf(address juror) view returns (address)",
+  "function balanceOf(address juror) view returns (uint256)",
   "function fund(address juror) payable",
 ];
 

@@ -6,7 +6,8 @@
     "build": "forge build",
     "test": "forge test",
     "ats:issue": "tsx script/ats/issueJurorShareToken.ts",
-    "ats:prove": "tsx script/ats/proveAtsBlocking.ts"
+    "ats:prove": "tsx script/ats/proveAtsBlocking.ts",
+    "ats:distribute": "tsx script/ats/proveSkimDistribution.ts"
   },
   "dependencies": {
     "@hashgraph/asset-tokenization-contracts": "8.0.0",
