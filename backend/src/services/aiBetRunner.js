@@ -87,6 +87,7 @@ async function runAgent(run, predictionId, modelId) {
   function summarizeResult(name, result) {
     if (name === 'search_news') return `${result.articles?.length || 0} articles`;
     if (name === 'get_price') return `ETH $${result.price}`;
+    if (name === 'firecrawl_web_search') return result.ok ? `${result.resultCount} web results` : `Search error: ${result.error?.message || 'unknown error'}`;
     if (name === 'place_prediction_bet') return `bet ${result.option?.label || result.optionId} for ${result.amountCents} cents`;
     return 'prediction read';
   }

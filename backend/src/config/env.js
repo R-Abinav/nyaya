@@ -32,6 +32,7 @@ module.exports = {
   NEWS_API_KEY: process.env.NEWS_API_KEY,
   // NewsData.io: 200 requests/day free tier
   NEWSDATA_API_KEY: process.env.NEWSDATA_API_KEY,
+  FIRECRAWL_API: process.env.FIRECRAWL_API,
 
   // Temporary x402 payment adapter. Replace with the Hedera gateway later.
   DUMMY_X402_COST_HBAR: process.env.DUMMY_X402_COST_HBAR || '0.01',
