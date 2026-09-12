@@ -14,6 +14,45 @@ Proves Foundry can deploy and transact through Hedera's JSON-RPC relay, before a
 
 Two things came out of this run, both now relied on by later code: contracts see **tinybars** (10¹⁰ weibars sent arrived as `msg.value == 1`), and `evm_version = "cancun"` really is supported, because `ping` executed an MCOPY instruction.
 
+## Step 6: the skim reaches shareholders
+
+The 20% skim leaves the resolver, is declared as a dividend on the live ATS token, and is claimed by a real holder. This is what makes "declared through ATS, paid by our distributor" a description of what happens rather than a plan.
+
+| What | Value |
+|---|---|
+| `JurorShareDistributor` | `0xd6b852e504c9d3df3a27297ef83236f2987da90e` |
+| Deploy | `0x62e39dde8b4b35742f800a275b3f23700a40efb18234e2fed90cd72e7e1bdf5f` |
+| `grantRole(ROLE_CORPORATE_ACTION)` on the ATS token | `0x131e04882f4b7cebe16a162d55f1f3d77a2cb42f82ea0c1d868289243b35f9d2` |
+| `setDistributionAddress` on the resolver | `0x82366ca86bdea08e9d2149185c7bfbf3cbba42b377fea55eb4000bc927f5e966` |
+| The case that earned the skim | open `0x221827ee9fd362d09f0b4d82db8d60e94fdd339c30947154b2f1361c9741ab79`, commit `0x06d25f2a789862fa67622fd1c384b65040485feb99798d58519da1d60674f986`, reveal `0x1116f97e252ce2d5786bab2214af186de0a66903dac0a8af7f60231a924e0641`, outcome `0xab1314fab42a45aa0a5753aec59672dde95eaa7d31dc2585e1b27e8574dbd8a7`, settle `0xd455896bc62dde24b9d9e8592e60f56e9a8fe9a610ccdfb5238d0f2b980843f5` |
+| `releaseDistribution` (skim leaves the resolver) | `0xea10ef5b9f2083889d3763f36f631c94c1328b7ad0d1133036487b3c8b947f22` |
+| `declare` (ATS snapshots holders) | `0x12568cc43c822cbbb19f197936e6517f35556ea3881115597fcb25f25d63aeeb` |
+| `claim` (holder receives HBAR) | `0x18008069ff01aab0bc09765812455dd32b42f61c50a4ea3f88c77f35fb8b00bb` |
+| Skim declared / ATS said owed / holder received | 0.4 HBAR / 0.4 HBAR / 0.4 HBAR |
+
+The case was real: a 2 HBAR bounty, the juror staking 2 HBAR, committing, revealing after the commit deadline passed, and the operator reporting the outcome after the resolution time. Settlement produced a 0.4 HBAR skim, which is 20% of the juror's 2 HBAR net profit. Each deadline was waited out in real time, because there is no `vm.warp` on a live network.
+
+### What ATS's dividend actually did
+
+`declare()` handed ATS a per-unit rate of `4000000000000000000000000` at 18 `amountDecimals`. ATS snapshotted the holder at 1,000 units and reported the entitlement as the exact fraction `40000000000000000000000000 / 1000000000000000000`, which is 40,000,000 tinybars, or 0.4 HBAR. The holder claimed and received exactly that.
+
+ATS declared and computed; it moved nothing. This contract paid. That is "declared through ATS, paid by our distributor", as a description of transactions rather than a plan.
+
+### The divergence result
+
+Six behaviours checked against `test/mocks/MockAtsToken.sol`, and the mock matches real ATS on every one:
+
+| Behaviour | Result |
+|---|---|
+| A record date of "now" is accepted | same, ATS stored `recordDate 1789232939` |
+| `recordDateReached` is true immediately | same |
+| The snapshot caught the existing holder | same, `balanceAtSnapshot 1000` |
+| Entitlement matches the mock's formula | same, both 40,000,000 tinybars |
+| The holder received what ATS said | same, 0.4 HBAR |
+| Dividend ids are 1-based | same, id 1 |
+
+The run first reported the fifth row as a difference. That was a unit bug in the reporting script, not in any contract: provider balances are weibar (18 decimals) while contract figures are tinybars (8), so an exactly correct payout appeared to differ by 10¹⁰. The script now converts before comparing.
+
 ## Step 7: ATS shares, issued and compliance-enforced
 
 The unit tests run against `test/mocks/MockAtsToken.sol`. These transactions are the same behaviour against the real Asset Tokenization Studio deployment on testnet.
