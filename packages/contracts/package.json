@@ -1,0 +1,19 @@
+{
+  "name": "contracts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test",
+    "ats:issue": "tsx script/ats/issueJurorShareToken.ts",
+    "ats:prove": "tsx script/ats/proveAtsBlocking.ts"
+  },
+  "dependencies": {
+    "@hashgraph/asset-tokenization-contracts": "8.0.0",
+    "ethers": "^6.13.4"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
