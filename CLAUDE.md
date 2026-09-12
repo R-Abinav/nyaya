@@ -34,6 +34,7 @@ pnpm -F web dev                   # Vite dev server
 - Agent, gateway, MCP server: Node + TypeScript, ethers v6
 - Juror models: all three jurors run NVIDIA Nemotron (free tier) via OpenRouter, differentiated by system prompt and tool preferences, not by model
 - Evidence: the resolution checker's raw evidence and every juror's evidence trail are pinned to IPFS (Pinata free tier), with only the CID on-chain
+- ATS: call Asset Tokenization Studio's **contracts** directly with ethers, using the ABIs published in `@hashgraph/asset-tokenization-contracts`. Not the SDK: `@hashgraph/asset-tokenization-sdk` v8.0.0 has no headless signer (`SupportedWallets` is MetaMask, WalletConnect, DFNS, Fireblocks, AWS KMS), and `Network.connect` expects a browser wallet, so a Node script holding a private key cannot drive it. Do not use the undocumented `RPCTransactionAdapter.setSignerOrProvider` seam either; it depends on internals their docs do not cover. Hedera's track text allows "SDK, contracts, web app, or a combination", and ATS's compliance registry, roles and dividend snapshots do the same work whichever entry point calls them. Still never run ATS's reference web app or its Postgres-backed Mass Payout app: a script is reproducible by judges, a manual MetaMask flow is not
 - Frontend: React + Vite + Tailwind + shadcn/ui. `lightweight-charts` for the ticker
 - Wallet: MetaMask + wagmi + ethers over Hedera's EVM JSON-RPC relay. Do not add HashConnect or HashPack
 
@@ -85,6 +86,7 @@ Read `docs/SPONSOR-REQUIREMENTS.md` before claiming any track is satisfied.
 - `docs/ARCHITECTURE.md` — full system design, scoring math with worked example, treasury, case types, limitations
 - `docs/PRIOR-ART.md` — what similar projects already won with, and what we must not converge onto
 - `docs/SPONSOR-REQUIREMENTS.md` — verbatim qualification requirements per track
+- `docs/TESTNET-EVIDENCE.md` — the real Hedera transactions proving each step actually works on testnet
 - `.claude/rules/` — conventions that load automatically when you open files in a given package
 
 ## Working style for this repo
