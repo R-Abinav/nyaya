@@ -289,6 +289,12 @@ contract NyayaResolver {
         emit CaseSettled(caseId, c.outcome, pool, correctStake, remainder, rolledIn, 0);
     }
 
+    /// Where share-trade fees land. The Case Bounty Treasury funds operator-opened cases.
+    function contributeToCaseBountyTreasury() external payable {
+        if (msg.value == 0) revert NothingToWithdraw();
+        caseBountyTreasury += msg.value;
+    }
+
     function setDistributionAddress(address juror, address to) external onlyOperator {
         if (juror == address(0) || to == address(0)) revert ZeroAddress();
         if (distributionAddress[juror] != address(0)) revert DistributionAddressAlreadySet();
