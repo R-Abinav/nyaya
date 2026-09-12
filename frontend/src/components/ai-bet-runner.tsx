@@ -19,13 +19,26 @@ function initialStates(): Record<AgentId, AgentState> {
   }, {} as Record<AgentId, AgentState>);
 }
 
-export function AiBetRunner({ prediction, onClose }: { prediction: Prediction; onClose: () => void }) {
+export function AiBetRunner({ prediction, onClose, onStake }: { prediction: Prediction; onClose: () => void; onStake?: () => void }) {
   const [states, setStates] = useState(initialStates);
   const [runId, setRunId] = useState<string>();
   const [finished, setFinished] = useState(false);
   const [error, setError] = useState('');
+  const [models, setModels] = useState<Array<{ id: AgentId; name: string; profit: number; roi: number }>>([]);
+  const [selectedModel, setSelectedModel] = useState<AgentId>();
+  const [stake, setStake] = useState('');
+  const [forceBet, setForceBet] = useState(false);
   const active = Boolean(runId) && !finished;
   const orderedStates = useMemo(() => agents.map(agent => states[agent.id]), [states]);
+
+  useEffect(() => {
+    void request<{ models: Array<{ id: AgentId; name: string; profit: number; roi: number }> }>('/performance/models')
+      .then(result => {
+        setModels(result.models);
+        setSelectedModel(result.models[0]?.id);
+      })
+      .catch(() => setError('Sign in before selecting an AI and staking a performance bet.'));
+  }, []);
 
   useEffect(() => () => {
     // Closing the panel stops listening to the stream; the server run remains truthful and continues independently.
@@ -36,7 +49,12 @@ export function AiBetRunner({ prediction, onClose }: { prediction: Prediction; o
     setStates(initialStates());
     setFinished(false);
     try {
-      const result = await request<{ runId: string }>('/ai/bet/runs', jsonBody({ predictionId: prediction.id }));
+      if (!selectedModel) throw new Error('Select an AI model first');
+      const amountCents = Math.round(Number(stake) * 100);
+      if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error('Enter a positive stake');
+      await request('/performance/bets', jsonBody({ predictionId: prediction.id, modelId: selectedModel, amountCents }));
+      onStake?.();
+      const result = await request<{ runId: string }>('/performance/runs/start', jsonBody({ predictionId: prediction.id, forceBet }));
       setRunId(result.runId);
       const stream = new EventSource(`${apiRoot}/ai/bet/runs/${encodeURIComponent(result.runId)}/events`);
       stream.onmessage = event => {
@@ -56,7 +74,7 @@ export function AiBetRunner({ prediction, onClose }: { prediction: Prediction; o
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not start the AI betting run'); }
   }
 
-  return <Card className="mt-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-muted-foreground">AI execution</p><h2 className="mt-1 text-xl font-bold">Three independent agents</h2><p className="mt-1 text-sm text-muted-foreground">{prediction.statement}</p></div><div className="flex gap-2"><Button variant="secondary" onClick={onClose}>Close</Button><Button onClick={start} disabled={active}>{active ? 'Betting in progress…' : runId ? 'Run again' : 'Start Bet'}</Button></div></div>{error && <p className="mt-4 rounded-xl bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}<div className="mt-6 grid gap-4 overflow-x-auto md:grid-cols-3">{orderedStates.map((agent, index) => <AgentPanel key={agents[index].id} agent={agent} />)}</div></Card>;
+  return <Card className="mt-8"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-muted-foreground">Performance market</p><h2 className="mt-1 text-xl font-bold">Which AI will perform best?</h2><p className="mt-1 text-sm text-muted-foreground">{prediction.statement}</p></div><div className="flex gap-2"><Button variant="secondary" onClick={onClose}>Close</Button><Button onClick={start} disabled={active || !models.length}>{active ? 'Betting in progress…' : runId ? 'Run again' : 'Confirm stake & start'}</Button></div></div>{!runId && <><div className="mt-6 grid gap-3 md:grid-cols-3">{models.map(model => <button type="button" key={model.id} onClick={() => setSelectedModel(model.id)} className={`rounded-xl border p-4 text-left ${selectedModel === model.id ? 'border-primary bg-primary/10' : 'border-line bg-canvas'}`}><b>{model.name}</b><span className="mt-2 block text-xs text-muted-foreground">Historical profit ${(model.profit / 100).toFixed(2)} · ROI {(model.roi * 100).toFixed(1)}%</span></button>)}</div><div className="mt-4 grid gap-4 sm:grid-cols-[auto_1fr] sm:items-center"><label className="flex items-center gap-3 text-sm font-semibold"><input type="checkbox" checked={forceBet} onChange={event => setForceBet(event.target.checked)} />Force all models to place a bet</label><p className="text-xs text-muted-foreground">When enabled, every model must successfully use the place-bet tool before completing. When disabled, each model may independently decline.</p></div><div className="mt-4 max-w-xs"><label className="grid gap-2 text-sm font-semibold">Your stake (USD)<input className="min-h-11 rounded-xl border border-line bg-canvas px-3.5 text-sm" type="number" min="0.01" step="0.01" value={stake} onChange={event => setStake(event.target.value)} /></label></div></>}{error && <p className="mt-4 rounded-xl bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}<div className="mt-6 grid gap-4 overflow-x-auto md:grid-cols-3">{orderedStates.map((agent, index) => <AgentPanel key={agents[index].id} agent={agent} />)}</div></Card>;
 }
 
 function AgentPanel({ agent }: { agent: AgentState }) {
@@ -66,7 +84,8 @@ function AgentPanel({ agent }: { agent: AgentState }) {
     if (stickToBottom.current && timelineRef.current) timelineRef.current.scrollTop = timelineRef.current.scrollHeight;
   }, [agent.events.length]);
   const completedData = agent.completed?.data;
-  return <div className="min-h-72 rounded-2xl border border-line bg-canvas p-4"><div className="flex items-center justify-between gap-2"><h3 className="font-bold">{agent.name}</h3><Badge tone={agent.error ? 'danger' : agent.completed ? 'success' : 'warning'}>{agent.error ? 'Failed' : agent.completed ? 'Completed' : <span className="inline-flex items-center gap-1"><span className="animate-pulse">●</span>{humanStatus(agent.status)}</span>}</Badge></div><div ref={timelineRef} onScroll={event => { const element = event.currentTarget; stickToBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24; }} className="mt-4 max-h-72 space-y-3 overflow-y-auto pr-1">{agent.events.length === 0 && <p className="text-sm text-muted-foreground">Waiting for the agent to start…</p>}{agent.events.map((event, index) => <EventRow event={event} key={`${event.timestamp}-${index}`} />)}</div>{agent.completed && <div className="mt-4 grid grid-cols-3 gap-2 border-t border-line pt-3 text-xs"><div><span className="block text-muted-foreground">API cost</span><b>{Number(completedData?.apiCost ?? 0).toFixed(3)} HBAR</b></div><div><span className="block text-muted-foreground">Stake</span><b>${(Number(completedData?.betStakeCents ?? 0) / 100).toFixed(2)}</b></div><div><span className="block text-muted-foreground">Total spent</span><b>{Number(completedData?.apiCost ?? 0).toFixed(3)} HBAR + ${(Number(completedData?.betStakeCents ?? 0) / 100).toFixed(2)}</b></div></div>}{agent.error && <p className="mt-4 text-sm text-danger">{agent.error}</p>}</div>;
+  const final = completedData?.finalResult as { outcome?: string; betPlaced?: boolean; betDecision?: string; selectedOption?: string | null; stake?: number; reasoning?: string; stopReason?: string } | undefined;
+  return <div className="min-h-72 rounded-2xl border border-line bg-canvas p-4"><div className="flex items-center justify-between gap-2"><h3 className="font-bold">{agent.name}</h3><Badge tone={agent.error ? 'danger' : agent.completed ? 'success' : 'warning'}>{agent.error ? (agent.status === 'mandatory_bet_failed' ? 'Mandatory bet failed' : 'Failed') : agent.completed ? 'Completed' : <span className="inline-flex items-center gap-1"><span className="animate-pulse">●</span>{humanStatus(agent.status)}</span>}</Badge></div><div ref={timelineRef} onScroll={event => { const element = event.currentTarget; stickToBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24; }} className="mt-4 max-h-72 space-y-3 overflow-y-auto pr-1">{agent.events.length === 0 && <p className="text-sm text-muted-foreground">Waiting for the agent to start…</p>}{agent.events.map((event, index) => <EventRow event={event} key={`${event.timestamp}-${index}`} />)}</div>{agent.completed && <div className="mt-4 grid grid-cols-3 gap-2 border-t border-line pt-3 text-xs"><div><span className="block text-muted-foreground">API cost</span><b>{Number(completedData?.apiCost ?? 0).toFixed(3)} HBAR</b></div><div><span className="block text-muted-foreground">Stake</span><b>${(Number(completedData?.betStakeCents ?? 0) / 100).toFixed(2)}</b></div><div><span className="block text-muted-foreground">Total spent</span><b>{Number(completedData?.apiCost ?? 0).toFixed(3)} HBAR + ${(Number(completedData?.betStakeCents ?? 0) / 100).toFixed(2)}</b></div></div>}{final && <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm"><p className="font-bold">Final Result</p><p className="mt-2"><b>Outcome:</b> {final.outcome}</p><p className="mt-1"><b>Bet:</b> {final.betPlaced ? `Placed $${((final.stake ?? 0) / 100).toFixed(2)}${final.selectedOption ? ` on ${final.selectedOption}` : ''}` : 'NO BET'}</p><p className="mt-1"><b>Reason:</b> {final.reasoning}</p><p className="mt-1"><b>Stop reason:</b> {final.stopReason}</p></div>}{agent.error && <p className="mt-4 text-sm text-danger">{agent.error}</p>}</div>;
 }
 
 function EventRow({ event }: { event: AgentEvent }) {

@@ -8,8 +8,7 @@ const { searchFirecrawl } = require('./firecrawlService');
 const logger = require('./logger');
 
 function readPrediction(predictionId) {
-  const prediction = getPrediction(predictionId);
-  return {
+  return getPrediction(predictionId).then(prediction => ({
     id: prediction.id,
     question: prediction.statement,
     options: prediction.options,
@@ -18,20 +17,26 @@ function readPrediction(predictionId) {
     expiresAt: prediction.expiresAt,
     status: prediction.status,
     metadata: { createdAt: prediction.createdAt, updatedAt: prediction.updatedAt, expired: prediction.expired },
-  };
+  }));
 }
 
 async function placeAgentBet({ predictionId, optionId, modelId, amountCents }) {
   if (!modelId || typeof modelId !== 'string') throw new Error('modelId is required');
-  getJuror(modelId);
-  ensureModelAccount(modelId);
-  const payment = await approveEvidencePayment({ caseId: predictionId, jurorId: modelId, toolName: 'prediction_bet' });
+  const juror = getJuror(modelId);
+  const normalizedModelId = juror.id;
+  ensureModelAccount(normalizedModelId);
+  const prediction = await getPrediction(predictionId);
+  const selectedOption = prediction.options.find(option =>
+    option.id === optionId || option.label.toLowerCase() === String(optionId).trim().toLowerCase()
+  );
+  if (!selectedOption) throw new Error(`Option not found for this prediction: ${optionId}`);
+  const payment = await approveEvidencePayment({ caseId: predictionId, jurorId: normalizedModelId, toolName: 'prediction_bet' });
   if (!payment.approved) throw new Error('Bet payment was not approved');
-  return placeBet({ predictionId, optionId, bettorId: modelId, amountCents, payment });
+  return placeBet({ predictionId, optionId: selectedOption.id, bettorId: normalizedModelId, modelId: normalizedModelId, amountCents, payment });
 }
 
 async function executeAgentTool({ name, args, predictionId, modelId }) {
-  if (name === 'read_prediction') return { result: readPrediction(args.predictionId), cost: 0, payment: null };
+  if (name === 'read_prediction') return { result: await readPrediction(args.predictionId), cost: 0, payment: null };
   if (name === 'search_news' || name === 'get_price') {
     const payment = await approveEvidencePayment({ caseId: predictionId, jurorId: modelId, toolName: name });
     const result = name === 'search_news' ? await searchNewsData(args) : await getEthPrice();

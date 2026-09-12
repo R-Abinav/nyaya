@@ -21,37 +21,37 @@ function sendError(res, error) {
   res.status(status).json({ error: error.message });
 }
 
-function list(req, res) {
-  res.json({ predictions: listPredictions({ includeExpired: req.query.includeExpired !== 'false' }) });
+async function list(req, res) {
+  res.json({ predictions: await listPredictions({ includeExpired: req.query.includeExpired !== 'false' }) });
 }
 
-function get(req, res) {
+async function get(req, res) {
   try {
-    res.json({ prediction: getPrediction(req.params.predictionId) });
+    res.json({ prediction: await getPrediction(req.params.predictionId) });
   } catch (error) {
     sendError(res, error);
   }
 }
 
-function create(req, res) {
+async function create(req, res) {
   try {
-    res.status(201).json({ prediction: createPrediction(req.body) });
+    res.status(201).json({ prediction: await createPrediction(req.body) });
   } catch (error) {
     sendError(res, error);
   }
 }
 
-function update(req, res) {
+async function update(req, res) {
   try {
-    res.json({ prediction: updatePrediction(req.params.predictionId, req.body) });
+    res.json({ prediction: await updatePrediction(req.params.predictionId, req.body) });
   } catch (error) {
     sendError(res, error);
   }
 }
 
-function remove(req, res) {
+async function remove(req, res) {
   try {
-    deletePrediction(req.params.predictionId);
+    await deletePrediction(req.params.predictionId);
     res.status(204).end();
   } catch (error) {
     sendError(res, error);
@@ -78,31 +78,31 @@ async function aiBet(req, res) {
   }
 }
 
-function end(req, res) {
+async function end(req, res) {
   try {
-    res.json({ prediction: endPrediction(req.params.predictionId, req.body.winningOptionId) });
+    res.json({ prediction: await endPrediction(req.params.predictionId, req.body.winningOptionId) });
   } catch (error) {
     sendError(res, error);
   }
 }
 
-function accounts(req, res) {
-  ensureAdminAccount();
-  res.json({ accounts: listAccounts() });
+async function accounts(req, res) {
+  await ensureAdminAccount();
+  res.json({ accounts: await listAccounts() });
 }
 
-function account(req, res) {
+async function account(req, res) {
   try {
-    res.json({ account: getAccount(req.params.accountId) });
+    res.json({ account: await getAccount(req.params.accountId) });
   } catch (error) {
     sendError(res, error);
   }
 }
 
-function transfer(req, res) {
+async function transfer(req, res) {
   try {
     res.status(201).json({
-      transaction: transferFunds({
+      transaction: await transferFunds({
         from: 'admin',
         to: req.body.to,
         amountCents: req.body.amountCents,
@@ -114,16 +114,16 @@ function transfer(req, res) {
   }
 }
 
-function transactions(req, res) {
-  res.json({ transactions: listTransactions() });
+async function transactions(req, res) {
+  res.json({ transactions: await listTransactions() });
 }
 
-function history(req, res) {
-  res.json({ bets: listBets({ predictionId: req.params.predictionId }) });
+async function history(req, res) {
+  res.json({ bets: await listBets({ predictionId: req.params.predictionId }) });
 }
 
-function allHistory(req, res) {
-  res.json({ bets: listBets() });
+async function allHistory(req, res) {
+  res.json({ bets: await listBets() });
 }
 
 module.exports = {

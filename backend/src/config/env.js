@@ -3,6 +3,9 @@ require('dotenv').config();
 module.exports = {
   PORT: process.env.PORT || 3000,
   ADMIN_API_KEY: process.env.ADMIN_API_KEY,
+  JWT_SECRET: process.env.JWT_SECRET || 'development-only-change-me',
+  ADMIN_EMAIL: process.env.ADMIN_EMAIL,
+  ADMIN_PASSWORD: process.env.ADMIN_PASSWORD,
 
   // OpenRouter for LLM (NVIDIA Nemotron)
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,

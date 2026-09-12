@@ -1,0 +1,190 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum WalletTransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  BET
+  PRIZE
+  REFUND
+  TRANSFER
+}
+
+enum PredictionStatus {
+  ACTIVE
+  ENDED
+}
+
+enum RunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id              String           @id @default(cuid())
+  email           String           @unique
+  passwordHash    String
+  role            UserRole         @default(USER)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  wallet          Wallet?
+  bets            Bet[]
+  performanceBets PerformanceBet[]
+  runs            AiRun[]
+}
+
+model Wallet {
+  id        String              @id @default(cuid())
+  userId    String              @unique
+  balance   Int                 @default(0)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ledger    WalletTransaction[]
+}
+
+model WalletTransaction {
+  id        String                @id @default(cuid())
+  walletId  String
+  type      WalletTransactionType
+  amount    Int
+  reference String?
+  metadata  Json?
+  createdAt DateTime              @default(now())
+  wallet    Wallet                @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId, createdAt])
+}
+
+model Prediction {
+  id              String             @id
+  statement       String
+  expiresAt       DateTime
+  status          PredictionStatus   @default(ACTIVE)
+  winningOptionId String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  options         PredictionOption[]
+  bets            Bet[]
+  performanceBets PerformanceBet[]
+  runs            AiRun[]
+  settlement      Settlement?
+}
+
+model PredictionOption {
+  id           String     @id
+  predictionId String
+  label        String
+  prediction   Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  bets         Bet[]
+
+  @@index([predictionId])
+}
+
+model Bet {
+  id           String           @id
+  predictionId String
+  optionId     String
+  userId       String?
+  aiAccountId  String?
+  amount       Int
+  won          Boolean?
+  payout       Int?
+  createdAt    DateTime         @default(now())
+  prediction   Prediction       @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  option       PredictionOption @relation(fields: [optionId], references: [id])
+  user         User?            @relation(fields: [userId], references: [id])
+  aiAccount    AiAccount?       @relation(fields: [aiAccountId], references: [id])
+
+  @@index([predictionId])
+}
+
+model PerformanceBet {
+  id           String     @id
+  predictionId String
+  userId       String
+  modelId      String
+  amount       Int
+  won          Boolean?
+  payout       Int?
+  createdAt    DateTime   @default(now())
+  prediction   Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([predictionId])
+  @@index([userId, createdAt])
+  @@index([modelId, createdAt])
+}
+
+model AiAccount {
+  id           String          @id
+  name         String
+  balance      Int             @default(50000)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  bets         Bet[]
+  runs         AiRun[]
+  transactions AiTransaction[]
+}
+
+model AiTransaction {
+  id        String    @id @default(cuid())
+  accountId String
+  type      String
+  amount    Int
+  reference String?
+  metadata  Json?
+  createdAt DateTime  @default(now())
+  account   AiAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+}
+
+model AiRun {
+  id           String       @id
+  predictionId String
+  userId       String?
+  forceBet     Boolean      @default(false)
+  status       RunStatus    @default(RUNNING)
+  error        String?
+  createdAt    DateTime     @default(now())
+  completedAt  DateTime?
+  prediction   Prediction   @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id])
+  events       AiRunEvent[]
+  aiAccountId  String?
+  aiAccount    AiAccount?   @relation(fields: [aiAccountId], references: [id])
+}
+
+model AiRunEvent {
+  id        String   @id @default(cuid())
+  runId     String
+  modelId   String?
+  type      String
+  data      Json?
+  createdAt DateTime @default(now())
+  run       AiRun    @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, createdAt])
+}
+
+model Settlement {
+  id              String     @id @default(cuid())
+  predictionId    String     @unique
+  winningOptionId String
+  totalPool       Int
+  settledAt       DateTime   @default(now())
+  prediction      Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+}

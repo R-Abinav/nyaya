@@ -3,7 +3,12 @@ export const apiRoot = import.meta.env.VITE_API_URL ?? '/api';
 export async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${apiRoot}${path}`, {
     ...options,
-    headers: { ...(options?.body ? { 'Content-Type': 'application/json' } : {}), ...options?.headers },
+    credentials: 'include',
+    headers: {
+      ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(sessionStorage.getItem('nyaya-token') ? { Authorization: `Bearer ${sessionStorage.getItem('nyaya-token')}` } : {}),
+      ...options?.headers,
+    },
   });
   const text = response.status === 204 ? '' : await response.text();
   let data: { error?: string } | null = null;

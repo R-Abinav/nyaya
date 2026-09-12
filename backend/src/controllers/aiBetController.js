@@ -1,11 +1,11 @@
 const { getRun, startRun } = require('../services/aiBetRunner');
 const { getPrediction } = require('../services/predictionMarketService');
 
-function start(req, res) {
+async function start(req, res) {
   try {
-    getPrediction(req.body.predictionId);
-    const run = startRun(req.body.predictionId);
-    res.status(202).json({ runId: run.id, predictionId: run.predictionId });
+    await getPrediction(req.body.predictionId);
+    const run = await startRun(req.body.predictionId, req.user?.id, req.body.forceBet === true);
+    res.status(202).json({ runId: run.id, predictionId: run.predictionId, forceBet: run.forceBet });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

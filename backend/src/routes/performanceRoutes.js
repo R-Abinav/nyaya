@@ -1,0 +1,11 @@
+const express = require('express');
+const { requireUser } = require('../middleware/auth');
+const controller = require('../controllers/performanceController');
+const router = express.Router();
+router.use(requireUser);
+router.get('/', controller.performance);
+router.get('/models', controller.models);
+router.get('/bets', controller.bets);
+router.post('/bets', controller.bets);
+router.post('/runs/start', controller.startRun);
+module.exports = router;

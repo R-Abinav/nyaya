@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"No backend tests configured\"",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:seed": "node prisma/seed.js"
   },
   "repository": {
     "type": "git",
@@ -21,7 +24,11 @@
   },
   "homepage": "https://github.com/R-Abinav/nyaya#readme",
   "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "prisma": "^6.19.3"
   }
 }

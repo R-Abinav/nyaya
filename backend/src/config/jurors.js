@@ -195,9 +195,16 @@ COST DISCIPLINE:
  * Get juror configuration by ID
  */
 function getJuror(jurorId) {
-  const juror = jurors[jurorId];
+  const normalizedId = normalizeJurorId(jurorId);
+  const juror = jurors[normalizedId];
   if (!juror) {
     throw new Error(`Unknown juror: ${jurorId}. Valid jurors: ${Object.keys(jurors).join(', ')}`);
+  }
+
+  function normalizeJurorId(jurorId) {
+    return typeof jurorId === 'string' && jurorId.endsWith('_model')
+      ? jurorId.slice(0, -6)
+      : jurorId;
   }
   return juror;
 }
@@ -212,5 +219,6 @@ function getAllJurorIds() {
 module.exports = {
   jurors,
   getJuror,
+  normalizeJurorId,
   getAllJurorIds,
 };
