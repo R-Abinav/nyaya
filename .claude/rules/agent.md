@@ -44,10 +44,12 @@ x402 money leaves the juror's treasury through a capped, rate-limited withdrawal
 ## Models and differentiation
 All three jurors run NVIDIA Nemotron (free tier) via OpenRouter. They differ only in system prompt (evidence-sufficiency threshold, interpretive style) and source/tool preferences. Keep those differences explicit in each juror's config so the demo can show why jurors diverged. Correlated failure is a known tradeoff of using one model; do not add other models without discussing it first.
 
-## Always commit after spending
-An agent that has withdrawn evidence money for a case must always commit a ruling on that case before the commit deadline. Abstaining after spending is not a supported behaviour. Low confidence is expressed through a small confidence-scaled stake, never by not ruling.
+## Declining to commit below a confidence threshold is expected, not a bug
+An agent that has withdrawn evidence money for a case commits a ruling only if its confidence clears `CONFIDENCE_THRESHOLD_BPS` (`backend/src/services/jurorAgent.js`, currently 4000 = 40%). Below that, it does not call commit for that case. The evidence spend already happened and stands as a real, accepted loss — no stake ever locks either way, since staking only happens at commit — but declining to stake on a low-conviction ruling is a legitimate policy decision, not a malfunction. Persist and expose the full reasoning trail (every tool call, what it found, why it stopped, why confidence stayed low) as structured data via the backend's reasoning-trail endpoint (`GET /juror/reasoning/:caseId`), so a decline is auditable rather than a silent drop.
 
-So a juror that spent but never committed can only be a bug: a crash, a missed deadline, or a failed transaction. The agent must emit a loud, alertable log line whenever it detects that it spent on a case and has not committed as the deadline approaches or passes. On-chain, settlement records the spend as a loss (`Result.NoCommitment`, net `−x` on capital `x`) and also emits `SpentWithoutCommitting(caseId, juror, x402Spend)`, which an alert should watch for.
+Above the threshold, the agent must still always commit: proceed with the confidence-scaled stake exactly as spec'd below. Low confidence *above* the threshold is expressed through a small stake, never by abstaining — abstaining is reserved for confidence that doesn't clear the threshold at all.
+
+On-chain, settlement records a decline the same way as any other spend-without-commit (`Result.NoCommitment`, net `−x` on capital `x`) and emits `SpentWithoutCommitting(caseId, juror, x402Spend)`. That event is a **"juror declined to rule" signal**, not an automatic bug flag — a genuine crash, missed deadline, or failed transaction emits the identical event and looks the same on-chain, so use the agent's reasoning trail (present for a real decline, absent or truncated for a crash) to tell the two apart before alerting on it as a platform failure.
 
 ## Evidence Gateway
 - Express, one route per evidence type, grouped by case type. x402 middleware from the published libraries; do not hand-roll the payment protocol.

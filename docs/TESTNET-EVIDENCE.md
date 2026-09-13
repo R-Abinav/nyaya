@@ -360,3 +360,244 @@ The divergence report (real ATS vs `test/mocks/MockAtsToken.sol`) passed on all 
 Both blocked-buy addresses and the case's winning juror are the same real juror A identity throughout (`0xAD93109d571E527aA51Cc56A8E0682862866A69c`, hot wallet `0x7a900064d35fed347BAc5418Bc5F6C5768622D8c`), supplied by the user for this run and not stored anywhere in the repo.
 
 Reproduce with `npm run ats:repair-wiring` (idempotent — re-running it after everything is correctly wired just confirms and does nothing), then `JUROR_ADDRESS=<jurorA> npm run ats:prove` for the buy and compliance check, then `JUROR_ADDRESS=<jurorA> JUROR_PK=<...> BUYER_PK=<...> npm run ats:distribute` for the skim cycle, in `packages/contracts`.
+
+## Registering jurors B and C, and giving all three a consistent cross-chain identity
+
+Before this, only juror A had a real identity: registered on the live `JurorTreasury`, holding an ATS share token, and separately (and inconsistently) an unrelated throwaway key granted EAC write access on `juror-a.nyaya.eth`. Jurors B and C existed only as Sepolia-only ENS placeholders with no Hedera identity at all. Fixed both problems together, since an EOA's address is chain-independent and there's no reason a juror's Hedera identity and its Sepolia identity should ever have been different addresses.
+
+### Registering B and C on the live JurorTreasury
+
+Fresh throwaway keypairs, printed once, never stored:
+
+| Juror | Address | Hot wallet | `registerJuror` tx |
+|---|---|---|---|
+| B | `0x248A7Beb7206f76c078909541fD256529176a6EA` | `0x27705Fc2c5A65AAF512855B26DB0D0dFc36B5e60` | `0x83e9ceaf58f51510f1f35727345742918cad5fbb25cf37980035bb234d752505` |
+| C | `0xc4a8dCe2199BA1cF6eE4f498589D7a509486Ea2E` | `0x04778518524018a738D218Aa82305FED12222906` | `0x861d01a00b155fb4e8409f968baeada07c3427026c354d319368f24a5286384b` |
+
+Confirmed by re-enumerating every `JurorRegistered` event on the treasury (not by trusting the receipt alone) — all three jurors, including A, came back:
+
+```
+juror 0xad93109d571e527aa51cc56a8e0682862866a69c hotWallet 0x7a900064d35fed347bac5418bc5f6c5768622d8c
+juror 0x248a7beb7206f76c078909541fd256529176a6ea hotWallet 0x27705fc2c5a65aaf512855b26db0d0dfc36b5e60
+juror 0xc4a8dce2199ba1cf6ee4f498589d7a509486ea2e hotWallet 0x04778518524018a738d218aa82305fed12222906
+```
+
+### Rebinding all three ENS subnames to the real addresses
+
+`script/ens/rebindJurorEac.ts` revoked each subname's `profile`/`strategy` grant from its old placeholder and granted the same to the juror's real Hedera address — including juror A, whose ENS identity (`0x1bb269c63e...`, from the original step 10 proof) had never actually matched her real treasury address (`0xAD93...A69c`) at all until now.
+
+| Subname | Old (revoked) | New (granted, = real Hedera address) |
+|---|---|---|
+| `juror-a.nyaya.eth` | `0x1bb269c63ea41458D6Bc886448200E3621347D30` | `0xAD93109d571E527aA51Cc56A8E0682862866A69c` |
+| `juror-b.nyaya.eth` | `0x86Ab16ed1B5278798C4bb0c11Daf3b83dD2F7D60` | `0x248A7Beb7206f76c078909541fD256529176a6EA` |
+| `juror-c.nyaya.eth` | `0xD6587a0b4022F4386424BA3c9E0bB7919De6Bc6d` | `0xc4a8dCe2199BA1cF6eE4f498589D7a509486Ea2E` |
+
+12 real transactions (revoke + grant × 2 keys × 3 jurors), all status 1. `npm run ens:verify` re-run afterward against the updated `deployments/sepolia.json` — all 18 checks pass, plus a direct on-chain check that all three old placeholder addresses now hold neither `profile` nor `strategy` (`false`/`false` for all three).
+
+**No ATS share token exists yet for juror B or juror C** — only juror A has one issued, so the "own key/hot wallet blocked from holding own shares" compliance check doesn't apply to B/C yet. Noted here rather than left implicit. (Closed below, in "Tokenizing jurors B and C.")
+
+## Tokenizing jurors B and C
+
+Reused `script/ats/issueJurorShareToken.ts` (`npm run ats:issue`) exactly as it ran for juror A, generalized to accept `ATS_TOKEN_NAME`/`ATS_TOKEN_SYMBOL`/`ATS_ISIN_PREFIX` env overrides instead of hardcoding juror A's values, with the ISIN's check digit always computed via the existing `isinCheckDigit` function — confirmed the new default reproduces juror A's exact existing ISIN (`US0000000002`), so nothing changed for A. Ran it twice, once per juror, passing each juror's real registered `JUROR_PK`/`HOT_PK` (not throwaway keys) so it hit the script's "reusing funded accounts" branch and skipped re-registration (both were already registered on the treasury from the earlier section above).
+
+**Real secret-hygiene bug found and fixed mid-run**: the script's "Next: ..." hint always echoed the raw private keys, which is correct for a freshly-generated throwaway account but wrong once real, reused keys are passed in — it printed juror B's real private key and hot-wallet key to a script-output stream before this was caught and patched (the "reusing" branch now prints only the env var names). Juror B's key was not previously-secret material — it already lives in `backend/.env` — but it now also exists in that first run's captured output. Reviewed and accepted as a testnet-only, no-value-at-risk exposure rather than rotating the identity.
+
+| Juror | Token | Name / Symbol | `deployEquity` tx | `registerShareToken` tx |
+|---|---|---|---|---|
+| B (pragmatist) | `0xeDF4778167c44828C21E8806591D6307758795c2` | Nyaya Juror B Share / NYJB | `0x17c989e7eac135c3cd8f2415da1059d6adafd8a4c3d1c260a9dbe588ea8c4ebe` | `0xef3f3091258323a9c5a2c0385cef039582ed755b623c5a9236b66a5066f74ffb` |
+| C (maverick) | `0xF0fa0bd5CB4a5467af1C9e05ce7a09f1653c0CB3` | Nyaya Juror C Share / NYJC | `0x5375355ecd798c5632209ea97e77e926d15b5e7f530c4c14f15bb71df74dbce0` | `0xd48c86ebdc3d0f4b98f36e20b7c946a06134ffdd738f6614e1ff4cee965c4f98` |
+
+Verified independently on-chain for each (not inferred from a receipt): the live `JurorShareMarket` (`0x732c1D6217dC40E0744023A586a8DcfA40fDF0e8`) holds `ISSUER`/`CONTROLLER`/`CONTROL_LIST` = true/true/true on both tokens, and both the juror's own key and hot wallet are on each token's control list.
+
+Real proofs via `npm run ats:prove` per juror, same standard as juror A:
+
+| Juror | Third-party buy (success) | Blocked — juror key (`AccountIsBlocked`) | Blocked — hot wallet (`AccountIsBlocked`) |
+|---|---|---|---|
+| B | `0xe1a94d3b1fb3945ed070ea332609b003243d2bae4a26bd8ddda09199730dad6f` | `0xf1190ebe1d4b66a23a26abbe71f88b193fd67ef9375ae0e1624caef04339f840` | `0x58a80fa4af6589991f7459ebb106d769ba53d58b8df7a81b7bd1083a2fdd6a98` |
+| C | `0xa1c3a75b1264d1f207c1d6799926754a97ffc5003b6b9fa4896f657c28a71159` | `0x3d0923b51b54a00df53e8b744dd2201a096a0d1cf07d24e6584a6dadc588a13b` | `0x171e93e8035127e9ef7632fb67fe21aca4169b78488df49aac34bedc55ce14d1` |
+
+`deployments/hedera.json`'s `shareTokens` map now has all three: A → `0x5cCdEAdc7859cB6AB9d5a8bB763ce9Ac3dB1D86c`, B → `0xeDF4778167c44828C21E8806591D6307758795c2`, C → `0xF0fa0bd5CB4a5467af1C9e05ce7a09f1653c0CB3`. Written by the script itself.
+
+**Deliberate scope cut**: separate `JurorShareDistributor` instances and a full declare/claim/skim cycle were skipped for jurors B and C. That mechanism is already proven generically against juror A's token (see "Fixing the orphaned ATS wiring" above) and doesn't depend on which token it's pointed at — re-proving it per juror would be repeating the same proof, not adding new evidence.
+
+## Real x402 payment via Blocky402, on Hedera testnet
+
+Replaced the dummy payment boundary (`x402Gateway.js`'s `approveEvidencePayment`, which only ever fabricated an `approvalId` string) with a genuine x402 flow for exactly one evidence call: `search_news`, the one tool shared by every case type. Every other evidence tool (`get_launch_status`, `get_launch_pad_history`, `get_flight_status`, `get_weather`, `get_repo_stars`, `get_repo_activity`) is a deliberate, named scope cut and still uses the dummy path — see `REAL_X402_TOOLS` in `jurorAgent.js`.
+
+New files: `backend/src/services/x402HederaGateway.js` (the protected route, server-side) and `backend/src/services/x402HederaClient.js` (the payer, client-side), using the real `@x402/core`, `@x402/express`, `@x402/fetch`, `@x402/hedera` packages (`2.25.0`) against [Blocky402](https://blocky402.com) — an open-source, no-API-key-required x402 facilitator with a hosted Hedera testnet endpoint (`https://api.testnet.blocky402.com`).
+
+**Structure note (flagged, not silent)**: this route lives in `backend/`, not in the `packages/evidence-gateway/` package CLAUDE.md's repo map designates for it — that package doesn't exist yet, and standing up a second Express process/port wasn't worth it under time pressure tonight.
+
+**Real, independently-verified proof of the payment mechanism:**
+- `GET /evidence/search-news` returned a genuine HTTP 402 with a real `PAYMENT-REQUIRED` header: `{scheme:"exact", network:"hedera:testnet", amount:"1000000", asset:"0.0.0", payTo:"0.0.10465526"}` — `payTo` resolved live from the resolver's own `operator()` via the mirror node, not hardcoded. The response's `extra.feePayer:"0.0.7162784"` came back from Blocky402's own facilitator sync at middleware startup, confirming the facilitator is genuinely reachable, not stubbed.
+- A real payment was signed and sent from juror A's real hot wallet (Hedera account `0.0.10500934`, resolved from its EVM address via the mirror node).
+- Real settlement, confirmed by the `payment-response` header: `{success:true, payer:"0.0.10500934", transaction:"0.0.7162784@1789296882.538440245", network:"hedera:testnet"}`.
+- **Verified independently against the mirror node** (not just trusted from the facilitator's own HTTP response) — tx `0.0.7162784-1789296882-538440245`: `result: "SUCCESS"`, with `0.0.10500934` debited exactly `-1,000,000` tinybar and `0.0.10465526` (the operator) credited exactly `+1,000,000` tinybar, and the fee payer `0.0.7162784` covering the network fee. Real NewsData.io article data came back in the response body.
+
+**Honest limitation, not papered over**: confirming the *full agent loop* triggers this for real (the LLM picks `search_news`, the tool executes, the payment fires) is currently blocked by OpenRouter's free-tier daily rate limit being fully exhausted (`429`, resets `2026-09-14T00:00:00Z` — a quota, not a bug). The dispatch code (`jurorAgent.js`'s `REAL_X402_TOOLS.has(toolName)` branch) is simple and syntax-checked, and the payment mechanism it calls is proven end-to-end above independent of the LLM — but nobody has personally watched an LLM-driven tool call trigger it yet tonight. Re-run any real investigation after the quota resets to close this.
+
+## The resolution-checker: real ground truth, real IPFS pinning, real submitOutcome + settle
+
+New: `packages/contracts/script/resolver/resolutionChecker.ts`, `pinataOperator.ts`, `runResolutionChecker.ts`, `settleCase.ts`. This is a genuinely different trust role from the juror agent (guessing at the truth) and the Evidence Gateway (paid-for investigation access) — kept structurally separate the same way agent and gateway already are: `resolutionChecker.ts` imports only `backend/src/services/evidenceService.js`'s raw, already-proven-live data calls (via `createRequire`, cross-package CJS reuse — no new API integrations, per the brief), never anything from `jurorAgent.js`, `x402Gateway.js`, or `x402HederaGateway.js`; confirmed no file under `backend/src/` references any resolver script, in either direction.
+
+**Which case types are single-sourced (all three, honestly)**: evidenceService.js wires exactly one ground-truth source per case type today — Launch Library 2 for rocket-launch, OpenSky for flight-delay, GitHub's REST API for github-stars. Each case type's *second* tool (`get_launch_pad_history`, `get_weather`, `get_repo_activity`) measures a genuinely different fact (historical base-rate, ambient weather, commit momentum), not a second measurement of the same fact — so none of them are treated as cross-verification. No case type has real two-source agreement-checking exercised today; `assertSourcesAgree()` is written for real (throws on disagreement) but is a no-op until a genuine second source for the same fact is ever wired.
+
+One real, separate limitation found while building this: **flight-delay's ground truth is inherently a live snapshot, not a delay computation** — evidenceService.js has no flight-schedule source at all (OpenSky's `/states/all` returns only current position, never a scheduled time), so "delayed by N minutes vs. schedule" cannot honestly be computed from what's wired. The checker instead answers a snapshot-shaped question ("is the aircraft still on the ground at resolution time"), which real position data can actually answer.
+
+**Real IPFS pinning, with a real bug found and worked around**: the operator's `OPERATOR_PINATA_JWT` authenticates fine (confirmed via Pinata's own `/data/testAuthentication`) but returns `403 NO_SCOPES_FOUND` on the legacy `pinning/pinJSONToIPFS` endpoint — a real scope-configuration gap on this key, not a bug in this code. Pinata's newer v3 upload API (`uploads.pinata.cloud/v3/files`) works with the same key; `pinataOperator.ts` uses that instead. Verified the pin is real and durable via Pinata's own `/v3/files/public?cid=` lookup (`expires_at: null`), not just trusted from the upload response — smoke-test CID `bafkreiebwfvpkcu3er5pzl2h5bhwzpq74pyoklsp5o4z2moqbjjy76zime`. The operator's Pinata key (`OPERATOR_PINATA_JWT`, in `packages/contracts/.env`) and the agent's own (`AGENT_PINATA_JWT`, in `backend/.env`) are confirmed isolated from each other — each side can only see its own key by name, never the other's.
+
+**Real proof, against a fresh case** (case 2's real Falcon 9 launch wasn't due to resolve for ~7.5 more hours by the time this was ready, so per the brief's own branching — "use case 2 if it's resolved by the time this is ready, or open a fresh one otherwise" — a fresh, fast-resolving case was opened instead: a `github-stars` question decidable immediately and non-controversially, `torvalds/linux` already sitting at 248,474 stars against a 200,000 threshold):
+
+- `openCase` tx: `0x966153b8bcdf7c1118df6099a18f9ca09af1b3dab8dad12dd1b69bd8be199ed2`, case id **3**, question "Will torvalds/linux have at least 200000 stars by the resolution time?", 0.5 HBAR bounty, `resolutionTime` 2026-09-13T11:31:06Z (5 minutes out, so the full cycle could run for real within one sitting).
+- Resolution-checker run after `resolutionTime` passed: fetched `torvalds/linux` live from GitHub (248,474 stars, real API response, timestamped `2026-09-13T11:31:31Z`), computed `ruling = Yes (2)`, pinned the full evidence object to IPFS at `bafkreifadsvoypzb2grprxepehkkx5yulwvwnwmnxkkugpotmsdadbmcai`.
+- `submitOutcome` tx: `0x168818df2c2a34f38a758658566196f59984a1ce10b763cb5e6af57d325a0572`, status 1, using `OPERATOR_PRIVATE_KEY` — the same operator identity every other privileged action tonight already uses.
+- `settle` tx: `0xbecffc5ba5460348f394e3a9f5d67391f4c74ec9f3804f8ba74db95769a05d49`, status 1. `CaseSettled` event: `outcome=2, pool=0, correctStake=0, remainderToCaseBountyTreasury=0, rolledIn=0, rolledOut=0`.
+- **Honest characterization of what settle() exercised**: no juror had committed on this case (building real on-chain commit/reveal submission is separate, larger scope this task didn't ask for), so `correctStake == 0` and settlement took the "no correct jurors" branch — `_returnBounty` credited the 0.5 HBAR bounty back to the opener (`refundOf[operator]`, confirmed by direct read: `50,000,000` tinybar = 0.5 HBAR), not the reward-distribution branch. That branch (proportional payout to correct jurors, the worked A/B/C example) is already covered by forge tests per `.claude/rules/contracts.md`'s testing section — this run is the first time `submitOutcome` → `settle` executed against a real, freshly-opened case end to end, not the first time the payout math itself was exercised.
+
+Reproduce: `CASE_ID=<id> CASE_TYPE=github-stars REPO_OWNER=<owner> REPO_NAME=<repo> REPO_STAR_THRESHOLD=<n> npm run resolver:check-outcome`, then `CASE_ID=<id> npm run resolver:settle`, both in `packages/contracts`.
+
+## Closing item 4's residual gap: real caseType, read from the chain, not defaulted
+
+Item 4 (`backend/`) fixed `caseType` being hardcoded to `'general-news'` inside `jurorAgent.js`, wiring real per-case-type tool routing — but the HTTP endpoint that actually triggers an investigation (`POST /juror/investigate`) still never passed a real `caseType` into `caseData`, so in practice it always fell back to `general-news` regardless. Closed that gap for real:
+
+- `NyayaResolver`'s `Case` struct has no `caseType` field at all — confirmed by reading the struct directly. `caseType` is event-only, emitted once in `CaseOpened` and never stored. So reading it back means querying that event, not calling a getter.
+- Added `getCaseType(caseId)` to `backend/src/config/contracts.js`: reads the case's own `CaseOpened` log via `resolver.queryFilter(resolver.filters.CaseOpened(caseId), ...)`, bounded to a 200,000-block lookback (comfortably under Hashio's ~7-day `eth_getLogs` range limit). Throws a clear error — never silently falls back — if no `CaseOpened` event exists for the given id.
+- **Real bug hit and fixed along the way**: Hashio rejects `eth_getLogs` inside a JSON-RPC batch (`Method eth_getLogs is not permitted as part of batch requests`), and ethers v6's `JsonRpcProvider` batches by default. Fixed by constructing the shared provider with `{ batchMaxCount: 1 }`. Recorded in `.claude/rules/contracts.md` as a new Hashio footgun.
+- `jurorController.js`'s `investigateWithAllJurors` now awaits `getCaseType(useCaseId)` and passes it into `caseData`, instead of leaving `caseType` unset.
+- New reusable script: `packages/contracts/script/resolver/openCase.ts` (`npm run resolver:open-case`) — nothing previously wrapped opening a real case; this is also a building block the resolution-checker will need next.
+
+**Real proof**: opened a real `rocket-launch` case on the live resolver, seeded with a genuine upcoming Falcon 9 launch from Launch Library 2's public API (id `ad358a4d-c541-409b-9366-9c2f2da4aeb9`, "Falcon 9 Block 5 | O3b mPower 11-13", pad 80/SLC-40, window start `2026-09-13T18:49:00Z`):
+
+- `openCase` tx: `0xef1d98188410be59028755a692708943796651aeddd0b4d3656ba9bd335e0c39`, case id **2**, 1 HBAR bounty. (Minor cosmetic note: this run's default `resolutionTime` landed before the real launch window closes — fine for this proof since no `submitOutcome`/settlement was run, but worth picking a later default next time this script is used for a real end-to-end case.)
+- Called `POST /juror/investigate` with `caseId: 2` against all three real jurors. Backend logs confirm `getCaseType(2)` correctly resolved `"rocket-launch"` from the live `CaseOpened` event (not defaulted), and each juror's log line reads `offered tools for case type "rocket-launch": get_launch_status, get_launch_pad_history, search_news` — the real case-type-specific set, not the `general-news` fallback.
+- All three jurors actually called the real tools: `get_launch_status` hit `https://ll.thespacedevs.com/2.2.0/launch/ad358a4d-...` for real (Launch Library 2 returned "Go for Launch"), The Maverick also called `get_launch_pad_history` against pad 80, and all three called `search_news` (NewsData.io) with several real queries.
+- **A second real bug hit and fixed in the same run**: `backend/src/services/logger.js`'s `JSON.stringify` threw `Do not know how to serialize a BigInt` on every payment-log call, because `caseId` is now a genuine on-chain `BigInt` (from item 2/3's fix) — this silently aborted every evidence tool call before it ever reached the real upstream API (`totalSpent` stayed `0` for all three jurors on the first run). Fixed by adding a `bigint → string` case to the logger's `JSON.stringify` replacer. Re-ran after the fix and got real spend and real upstream calls, as above.
+- Real result: The Skeptic landed at 25% confidence (below `CONFIDENCE_THRESHOLD_BPS`) and **organically declined to commit** — not scripted, the first real, non-synthetic example of item 5's threshold behavior — logging `[The Skeptic] declined to commit for case 2: confidence 2500bps < threshold 4000bps. Evidence spend of 0.04 HBAR stands as an accepted loss.` The Pragmatist (50%) and The Maverick (85%) both committed normally with real commitments (`0xa8b463d3...`, `0x8c204809...`).
+
+Reproduce: `npm run resolver:open-case` in `packages/contracts` (or reuse case id 2), then `POST /juror/investigate` with that `caseId` against the backend.
+
+## The first full case: real investigation → real commit → real reveal → real ground truth → real settlement
+
+The milestone: all three jurors investigate a real case for real (real LLM reasoning, real evidence tool calls, each preceded by a real on-chain treasury withdrawal), each either declines or commits with a real, confidence-scaled stake, reveals for real after the commit deadline, and the resolution-checker's real outcome triggers real settlement — with real stake genuinely at risk and, this time, genuinely paid out. New: `backend/scripts/runFullCase.js` (agent side, juror keys only) orchestrates investigation → commit → reveal; opening the case and running the resolution-checker/`submitOutcome`/`settle` stay separate, operator-keyed steps in `packages/contracts`, the same structural separation as everywhere else tonight.
+
+This took three attempts, two of them real mistakes with real (if testnet-valueless) consequences. Recorded in full, not just the clean final run:
+
+### Attempt 1 — case 4: three real commits, permanently unrevealable
+
+All three jurors investigated `github-stars` case 4 for real and committed for real (Skeptic 1.5462 HBAR, Pragmatist 0.6990 HBAR, Maverick 1.3281 HBAR — commit txs `0x621bc0d7...`, `0x056adc70...`, `0x051757c9...`). The script then crashed pinning the reveal evidence: `agentPinata.js`'s `JSON.stringify` threw on a bare BigInt (the case id, embedded in the evidence trail) — the exact same bug class already fixed once tonight in `logger.js`, not caught here because the lesson wasn't re-applied. The crash landed *after* commit, *before* reveal, and each commit's salt existed only in that crashed process's memory — never persisted. The salts are gone; those three commitments can never be revealed.
+
+**Fixed**: `agentPinata.js` and the operator's equivalent `pinataOperator.ts` both now strip BigInts in their `JSON.stringify` calls. More importantly, `runFullCase.js` now writes each commit's `{ruling, confidenceBps, salt, commitment}` to `backend/scripts/.runs/case-<id>-commits.json` (gitignored) the instant the commit confirms, before the long wait-for-commitDeadline phase even starts — so a crash after that point is recoverable by hand instead of unrevealable by construction.
+
+**Closed out for real rather than left dangling**: since the mistake already happened, ran it through to real settlement instead of abandoning it — a genuinely different, previously-only-forge-tested real path (`Result.Unrevealed`, stake forfeited to the rollover pool):
+- `submitOutcome` tx: `0xa9704ebbdf5c52a0a9446e155203dd2a9a3773a31ead976f7dbecfe78858579e`
+- `settle` tx: `0xdc1ae4c88dcbfff6f9265be62499682ffb36536abed6ff359425d594bbacd28d`, status 1
+- Real `JurorSettled` events, all three `result=2` (Unrevealed): maverick `net -133,810,000` tinybar, pragmatist `net -70,900,000`, skeptic `net -155,620,000` — each juror's full stake plus its evidence spend, lost for real.
+- `CaseSettled`: `correctStake=0`, `rolledOut=357,330,000` tinybar (exactly the three stakes summed) — added to `rolloverPool` for the next case that settles with a winner, per the resolver's own rollover mechanic.
+
+### Attempt 2 — case 5: abandoned before it started, wrong repo
+
+Opened `github-stars` case 5 with the question "Will facebook/react have at least 200000 stars..." without first checking the repo path still resolves — the exact discipline this whole project insists on elsewhere. `facebook/react`'s API path now returns `{"message":"Moved Permanently", ...}`, not star data — the repo was renamed/transferred. Rather than let the checker's actual verification target silently diverge from the case's on-chain question text (facebook/react on paper, something else in practice — precisely the kind of mismatch this project forbids), abandoned case 5 unused (`openCase` tx `0xe5165411...`, 1 HBAR bounty, cancellable after its grace period) and opened a fresh, pre-verified case instead.
+
+### Attempt 3 — case 6: the real thing
+
+Verified `torvalds/linux` (248,481+ stars) before opening. `openCase` tx: `0x7e7f188b8676bb09c8b7943e276b8b4c86deb19bdb0152c3ad720a12dadca848`, case id **6**, bounty 1 HBAR, commitDeadline `2026-09-13T12:36:29Z`, resolutionTime `2026-09-13T12:41:29Z`.
+
+**A second real bug, mid-run**: the first `runFullCase.js` attempt against case 6 crashed in `parseVerdict` — one juror's very first LLM response came back with `tool_calls` empty and `content: null` (no usable text at all), and `content.toLowerCase()` threw on the null before any tool calls or commits happened. Fixed `parseVerdict` to treat null/empty content as "undetermined, zero confidence" (correctly routes to a decline) instead of crashing. Also hardened `runFullCase.js` to use `Promise.allSettled` instead of `Promise.all` for the investigation phase — a lesson directly from attempt 1: one juror's failure must never discard the other two's already-real on-chain work.
+
+**Re-ran, and it worked end to end.** All three jurors investigated for real, all landed above the confidence threshold and committed, all revealed for real after the real commit deadline passed:
+
+| Juror | Confidence | Stake | Ruling | Commit tx | Reveal tx |
+|---|---|---|---|---|---|
+| Skeptic | 5000bps | 0.7034 HBAR | Yes | `0x0cabc53967231f5b6f17c03f4f667d48d0e0836100656bfe6661a676db3453be` | `0xd45786de00c3c42f9275317e566a5f9114ecaafb04650f6b4312a1b3d1123932` |
+| Pragmatist | 8500bps | 1.0678 HBAR | Yes | `0x4da07752084c1a28faacd2489b83597ac5c1d37e9a0e0f0830b9bdff3284e6d1` | `0xa3ce03f63181238f30c06c1589b1aeb31397dfef6987f8e109e252cd3bdad5c4` |
+| Maverick | 5000bps | 0.5622 HBAR | Yes | `0xb33a0859ef14afe0719e90591c225ade8dc3f0debad754da764ef9daf857dbd2` | `0x2bb96b5ceb33870f1eca29c6a78f3ee99418b66e5f0ebfeaa211818c01a7b965` |
+
+Independently re-verified on-chain, not just trusted from the log: `commitments(6, <address>)` for all three shows `revealed: true`, `ruling: 2` (Yes), matching confidenceBps.
+
+Every evidence tool call was preceded by a real, case-tagged `withdrawForEvidence` transaction (e.g. Skeptic `0xeabb3804...`, Pragmatist `0x8376a8b6...`, Maverick's three: `0xa71726a3...`, `0xc0744d02...`, `0x74ae549d...`) — this is what makes each juror's on-chain `x402Spend` real money that actually left its treasury, not a number only ever reported in an HTTP response. Each committed juror's reasoning trail was pinned to IPFS with the *agent's own* Pinata key before reveal (Skeptic `bafkreihfio...`, Pragmatist `bafkreida6c...`, Maverick `bafkreig6md...`).
+
+**A third real bug, caught by cross-checking the log against on-chain state, not by trusting either alone**: Maverick's own final analysis said `**Betting Fraction:** 0.97`, but the on-chain commit recorded `confidenceBps: 5000` (50%). `parseVerdict`'s label-matching regexes assumed a label is followed immediately by `:`/whitespace — markdown bold (`**Betting Fraction:**`) inserts `**` between the label and the colon, defeating the match and silently falling through to the `0.5` default. The stake that actually got locked (0.5622 HBAR) was real and internally consistent with the recorded 5000bps, just not faithful to what the model actually said. **Fixed** by stripping markdown emphasis (`/[*_]{1,2}/g`) from the model's response once, up front, before every field regex runs — verified against the exact failing text. Left uncorrected on-chain (case 6 was already fully settled by the time this was traced) — noted here rather than silently smoothed over.
+
+**Resolution-checker + settlement, the actual milestone:**
+- Real outcome determined from live GitHub data (`torvalds/linux`, 248,484 stars ≥ 200,000), pinned to IPFS: `bafkreicem3bbv5dfyuykhaj35soc7oowjokeojlq6ssijqyrp45quxdqx4`
+- `submitOutcome` tx: `0xa0bd76942a37b599e208d99402ee4db22b1bf85017028ea2652f4eb8df100e38`, status 1, ruling Yes (2) — matching all three jurors' real revealed ruling
+- `settle` tx: `0xa884e51de35016c0d2a1ab5c0d4b5a4d60461777007879e7a3b3d041e0eddf00`, status 1
+- `CaseSettled`: `pool=100,000,000` tinybar (the 1 HBAR bounty), `correctStake=233,334,000` (all three jurors' stakes summed — everyone was correct), `remainderToCaseBountyTreasury=1` tinybar (rounding)
+- Real, individual `JurorSettled` events, all `result=0` (Correct):
+
+  | Juror | Stake | x402Spend | Reward | Net profit |
+  |---|---|---|---|---|
+  | Skeptic | 70,338,000 | 1,000,000 | 30,144,771 | +29,144,771 tinybar (0.2914 HBAR) |
+  | Pragmatist | 106,777,000 | 1,000,000 | 45,761,440 | +44,761,440 tinybar (0.4476 HBAR) |
+  | Maverick | 56,219,000 | 4,000,000 | 24,093,788 | +20,093,788 tinybar (0.2009 HBAR) |
+
+  All three tinybar-denominated, matching this whole project's Hedera-tinybar convention. This is the first time the pool-proportional reward math ran for real against genuinely staked, genuinely revealed jurors — the worked A/B/C example and the settlement math itself were already covered by forge tests; this run is the first live exercise of the full chain that produces it.
+
+Reproduce: `CASE_TYPE=github-stars CASE_QUESTION=... COMMIT_DEADLINE=<unix> RESOLUTION_TIME=<unix> npm run resolver:open-case` (verify the repo/threshold first!), then `CASE_ID=<id> CASE_QUESTION=<same text> node scripts/runFullCase.js` in `backend`, then once `resolutionTime` passes, `CASE_ID=<id> CASE_TYPE=github-stars REPO_OWNER=... REPO_NAME=... REPO_STAR_THRESHOLD=... npm run resolver:check-outcome` and `CASE_ID=<id> npm run resolver:settle`, both in `packages/contracts`.
+
+## Tonight's demo case types: rocket-launch and github-stars only
+
+`flight-delay`'s case-question template implies a schedule-vs-actual delay computation, but the mechanism (OpenSky's `/states/all`) only ever answers "is the aircraft still on the ground at this instant" — there is no flight-schedule source wired anywhere in `evidenceService.js` to compute an actual delay against. Rather than silently pick a fix, this was flagged and the explicit decision was: leave `flight-delay`'s code and question wording exactly as-is for later (once a real schedule source exists), and simply exclude it from tonight's demoable case types. No frontend or demo-script case-type list exists yet to formally prune it from; this note is that exclusion, recorded here since nothing else currently enumerates "available case types" to edit. Tonight's real, demoed case types are `rocket-launch` and `github-stars` only.
+
+## Juror ENS subnames now expose real, judge-visible demo metadata
+
+Step 10's EAC work only ever put `score`/`returnRate` (operator-only) and `profile`/`strategy` (juror-only) text records on each juror subname. Added four more, all operator-only, real values sourced from tonight's actual on-chain history — never zeros or placeholders:
+
+- `persona` — the juror's real name and actual system-prompt-level identity (`backend/src/config/jurors.js`), static, written once.
+- `casesJudged` — a real count of `JurorSettled` events for that juror address, read live off the Hedera resolver via `queryFilter`, never hardcoded.
+- `cumulativeReturnBps` — `NyayaResolver.returnBps(juror)`, the exact same getter `JurorShareMarket`'s own pricing already reads.
+- `lastCaseId` — the highest caseId among that juror's real `JurorSettled` events.
+
+**No new EAC grant was needed.** The operator already holds `SET_TEXT`/`SET_TEXT_ADMIN` at `ROOT_RESOURCE` on the resolver (step 10, part 3), and `_effectiveRoles` ORs root-resource roles into every resource's check unconditionally — so the operator can `setText` on these four brand-new keys the same as `score`/`returnRate`, with zero additional transactions. The juror's own key was never granted anything on them either; `roles.ts`'s `OPERATOR_ONLY_TEXT_KEYS` now lists all six operator-only keys for documentation, and `JUROR_WRITABLE_TEXT_KEYS` (`profile`, `strategy`) is untouched. The boundary is exactly as strict as before — nothing was relaxed to make this convenient.
+
+New: `script/ens/jurorStats.ts` (the shared read-Hedera/write-Sepolia logic — real personas, real `queryFilter`-based stats, real `setText` calls), `script/ens/populateJurorEnsStats.ts` (`npm run ens:juror-stats`, the one-off backfill), and a hook added to `script/anchor/relaySettlement.ts` so every future real settlement relay updates these three dynamic fields automatically — the same script that already mirrors to the anchor, not a separate step to remember.
+
+**Two real bugs hit and fixed while wiring this:**
+1. **Hashio batching, again.** `anchorConfig.ts`'s `hederaProvider()` didn't disable JSON-RPC batching, and `jurorStats.ts`'s `queryFilter(JurorSettled)` hit the same `eth_getLogs`-in-a-batch rejection already fixed once in the backend. Fixed the same way: `{ batchMaxCount: 1 }`.
+2. **Out-of-gas on the persona write, real and silent.** The first `populateJurorEnsStats.ts` run failed writing juror-a's `persona` with no decodable revert reason — `gasUsed: 146498` against a `150000` limit sized for the short numeric fields, not a ~150-character string. Confirmed by replaying the exact call as `eth_call` (no gas cap), which succeeded fine, proving the limit itself was the problem. Fixed by giving `persona`'s write its own, larger gas constant (400,000).
+3. **A third real bug, generalizable, found proving the ongoing hook**: `relaySettlement.ts`'s `decodeLog` (singular) grabbed whichever `JurorSettled` event came first in a receipt — correct only by accident once a `settle()` call has more than one participant. Case 6's settle transaction has three real `JurorSettled` events in one receipt (all three jurors), and asking for Pragmatist's specifically returned Maverick's instead. Fixed by switching to `decodeLogs` (plural, already existed in `anchorConfig.ts` for exactly this reason) and filtering by the requested juror's own address.
+
+**Real population, all three jurors, all sourced from tonight's actual two settled cases (4 and 6) plus juror A's earlier step-6 proof (case 1):**
+
+| Juror | casesJudged | lastCaseId | cumulativeReturnBps | persona tx |
+|---|---|---|---|---|
+| juror-a (Skeptic) | 3 | 6 | 1722 | `0x56ba90ed86fe064d3f57c803522674fcad611a711bef87fb42caac8e116be5c2` |
+| juror-b (Pragmatist) | 2 | 6 | -1462 | `0x2b5ee696f94ef6f266f37b53f7c0faa804264caa5b073f030adaf5f32b8c547b` |
+| juror-c (Maverick) | 2 | 6 | -5860 | `0x629cffb276952cb0d2e367b5f571d964f283624b8b2941de2311e3917bcb04dd` |
+
+(Skeptic has one more `casesJudged` than the other two because she alone also participated in case 1, from the earlier step-6 proof, before jurors B and C were ever registered. Pragmatist and Maverick's negative cumulative return is real and correct — case 4's full-stake `Unrevealed` forfeiture outweighs case 6's real win in their running totals, exactly the "pre-skim track record since genesis" the resolver's own accounting defines, not an error.)
+
+**The ongoing hook, proven live, not just described**: re-ran `relaySettlement.ts` for case 6 / Pragmatist (`HEDERA_CASE_ID=6 HEDERA_JUROR=0x248A7Beb7206f76c078909541fD256529176a6EA`) — this was also the first real relay of tonight's actual settled cases to the anchor (previous relay evidence was all from the original step-6/case-1 proof). One invocation, both real actions:
+- `recordVerdict` tx: `0xc3f76b8d0a187667cb9970737dd02096baa639b4c53dc4be3bffb3d9ce5dea0d`
+- `recordReturnCheckpoint` tx: `0x53427bacb89860b62872ce655d09eb465c21a300d515e0d1ba2a82cd33f0d048`
+- Automatically, from the same run: `casesJudged` tx `0x1423f9dd3c195493b0b89b0d51163e77d40845d2a62bb8eec5d542dd002003eb`, `cumulativeReturnBps` tx `0x5f00004f93df18848487b558444faa6eb5e892cd3074bbcf40db1dda1b8c8a48`, `lastCaseId` tx `0xb00f082b701cd99f458b67c1f703f8ebc0d64a3947c8b7f823b46aaaa53b6f0d`
+
+**Live proof — real ENS resolution, not a stored assumption.** Called `PermissionedResolver.text(namehash("juror-b.nyaya.eth"), key)` directly against Sepolia for Pragmatist (the juror with the most real history from case 6):
+
+```
+persona:              "The Pragmatist — seeks the optimal evidence-to-cost ratio; balances thoroughness with
+                       efficiency; stops once evidence is good enough rather than exhaustive."
+casesJudged:           "2"
+cumulativeReturnBps:   "-1462"
+lastCaseId:            "6"
+```
+
+`profile`/`strategy` read back empty (`""`) for the same subname — correct: the juror's own key has EAC write access to those fields but has never actually called `setText` on them, an orthogonal, pre-existing gap, not something this change touched.
+
+Reproduce: `npm run ens:juror-stats` (one-off backfill for all three), or `HEDERA_CASE_ID=<id> HEDERA_JUROR=<address> HEDERA_SETTLE_TX=<hash> npm run anchor:relay-settlement` (updates one juror's stats as a side effect of any future real settlement relay), both in `packages/contracts`.
+
+## Real gap found and closed during demo-readiness review: ENS had gone stale relative to the live resolver
+
+A demo-trigger test run (case 8, `github-stars`, real repo pool, all three jurors correctly ruled Yes and were paid) settled for real on-chain — the same real `settle()` path as case 6 — but `relaySettlement.ts`'s ENS-stats hook was only invoked manually for case 6/Pragmatist earlier, never for case 8. That left ENS reporting case 6's numbers while the live resolver had already moved on: a real, demo-visible inconsistency, not a display bug — `juror-b.nyaya.eth`'s `cumulativeReturnBps` read `-1462`/`lastCaseId` read `6` on Sepolia while the resolver's real current state was `+3603`/`8`.
+
+Re-ran `npm run ens:juror-stats` to resync all three subnames from live on-chain state. New real numbers, all three jurors now genuinely up (case 8 was a clean win for everyone — no juror declined or lost):
+
+| Juror | casesJudged | lastCaseId | cumulativeReturnBps | persona tx |
+|---|---|---|---|---|
+| juror-a (Skeptic) | 4 | 8 | 3941 | `0xc5774f991b5ca78f07d54ddc26b660c05951e1626639d985ec8e33284db89893` |
+| juror-b (Pragmatist) | 3 | 8 | 3603 | `0x50dd8d563c5966e00fad3adc1887eb75a416a24dbafca5b34214150c44b5339f` |
+| juror-c (Maverick) | 3 | 8 | 326 | `0xfebf3d851bbbec42b32dac790269c0ddadd19e9df77419328138909de5d560b2` |
+
+Verified live via a fresh `PermissionedResolver.text()` read for juror-b, matching the resolver exactly (`3603`/`8`).
+
+**This changes the demo narrative.** Before case 8, the real story was "one juror up, two down" (Skeptic +1722, Pragmatist -1462, Maverick -5860 — case 4's crash-forced forfeiture visible in two jurors' negative returns). After case 8, all three are genuinely up (Skeptic +3941, Pragmatist +3603, Maverick +326), because the demo-trigger's repo pool (large, extremely popular real GitHub repos) makes every juror's ruling close to a sure thing — there's little genuine uncertainty for any juror to disagree on or decline. Both states are equally real and equally honest to present; which one is on screen depends on whether the demo-trigger is run again before recording. **Do not trigger another demo-run case before recording if the "one up, two down" story from case 4/6 is what the pitch is built around** — running it again will move all three numbers again, in an outcome nobody controls in advance (the resolution-checker reports whatever the real GitHub star count is).
