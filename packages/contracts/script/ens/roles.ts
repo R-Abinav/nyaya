@@ -90,10 +90,13 @@ export const OPERATOR_RESOLVER_ROOT_BITMAP =
   RESOLVER_ROLES.UPGRADE |
   adminOf(RESOLVER_ROLES.UPGRADE);
 
-/// The two text-record keys a juror subname carries. `score` and `returnRate` are operator-only (the
-/// operator never explicitly grants itself SET_TEXT there; ROOT_RESOURCE already covers it). `profile` and
-/// `strategy` are granted to the juror's own key via `authorizeTextRoles`, scoped to exactly that key's
-/// EAC "part" (`keccak256(bytes(key))`) on exactly that subname's node — never to `resource(node, 0)`,
-/// which would be the "any part of this name" grant and would let the juror write its own score too.
-export const OPERATOR_ONLY_TEXT_KEYS = ["score", "returnRate"] as const;
+/// The text-record keys a juror subname carries. `score`, `returnRate`, `persona`, `casesJudged`,
+/// `cumulativeReturnBps`, and `lastCaseId` are all operator-only (the operator never explicitly grants
+/// itself SET_TEXT there; ROOT_RESOURCE already covers it, and it cascades automatically to any key,
+/// including these four added for the judge-visible demo metadata — no new grant was needed to add them).
+/// `profile` and `strategy` are granted to the juror's own key via `authorizeTextRoles`, scoped to exactly
+/// that key's EAC "part" (`keccak256(bytes(key))`) on exactly that subname's node — never to
+/// `resource(node, 0)`, which would be the "any part of this name" grant and would let the juror write its
+/// own score (or these new stats) too.
+export const OPERATOR_ONLY_TEXT_KEYS = ["score", "returnRate", "persona", "casesJudged", "cumulativeReturnBps", "lastCaseId"] as const;
 export const JUROR_WRITABLE_TEXT_KEYS = ["profile", "strategy"] as const;
