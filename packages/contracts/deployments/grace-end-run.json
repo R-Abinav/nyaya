@@ -1,0 +1,16 @@
+{
+  "resolver": "0xeD67F63B90Af9c436B36A37f048f259568F05ac5",
+  "treasury": "0x2da722390d6cA31741619837cC7e9966cb00E39A",
+  "caseId": "2",
+  "juror": "0xAD93109d571E527aA51Cc56A8E0682862866A69c",
+  "stake": "50000000",
+  "bounty": "100000000",
+  "bountySource": "External (the operator opened and funded it)",
+  "opener": "0xbaeE5F07C834F3d6e04beA62db4f305EE4151a59",
+  "commitDeadline": 1789236999,
+  "resolutionTime": 1789237059,
+  "graceEnd": 1789323459,
+  "graceEndISO": "2026-09-13T18:17:39.000Z",
+  "openTx": "0x2387bc31f9acbb518c9bc8cb723f4ea78012380f2898f315e4d60c5cb6a718a3",
+  "commitTx": "0xb99e7a5b51e737377cfe6aaa6fe193cd7f0abd9c8c7a7c743fe2ceb5c51dde6e"
+}
