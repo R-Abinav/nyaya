@@ -121,8 +121,12 @@ contract NyayaResolver {
     event RefundCredited(address indexed account, uint256 indexed caseId, uint256 amount);
     event RefundWithdrawn(address indexed account, uint256 amount);
     /// `retainedNet` is net minus skim: what the juror keeps. The recorded track record stays pre-skim.
-    /// Alert signal. Agents always commit after spending on a case, so recorded spend with no commitment
-    /// can only mean an agent bug: a crash, a missed deadline, or a failed transaction.
+    /// "Juror declined to rule" signal, not an automatic bug flag: an agent below its confidence
+    /// threshold deliberately spends on evidence without committing, and that is a legitimate outcome,
+    /// not a malfunction. The same event also fires for a genuine crash, missed deadline, or failed
+    /// transaction, and on-chain the two look identical — telling them apart needs the agent's own
+    /// off-chain reasoning trail (present for a real decline, absent or truncated for a failure), not
+    /// this event alone.
     event SpentWithoutCommitting(uint256 indexed caseId, address indexed juror, uint256 x402Spend);
     event Skimmed(uint256 indexed caseId, address indexed juror, uint256 skim, int256 retainedNet);
     event DistributionAddressSet(address indexed juror, address indexed distributionAddress);

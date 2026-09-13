@@ -49,9 +49,11 @@ contract NyayaAnchor {
 
     /// Per-juror-per-case verdict, mirroring `NyayaResolver.JurorSettled` plus the juror's own ruling.
     /// `result` alone answers "why did this juror lose", distinguishing a wrong ruling (`Incorrect`) from
-    /// a forfeited non-reveal (`Unrevealed`) from a bug signal (`NoCommitment`) from a platform failure
-    /// that was nobody's fault (`Cancelled`) — never collapsed to a binary win/lose. `net` is signed and
-    /// pre-skim, matching what the resolver's own track record uses.
+    /// a forfeited non-reveal (`Unrevealed`) from a juror that spent on evidence and declined to commit
+    /// (`NoCommitment` — a legitimate low-confidence outcome, not by itself a bug signal; see
+    /// `NyayaResolver.SpentWithoutCommitting`) from a platform failure that was nobody's fault
+    /// (`Cancelled`) — never collapsed to a binary win/lose. `net` is signed and pre-skim, matching what
+    /// the resolver's own track record uses.
     event Verdict(
         uint256 indexed caseId,
         address indexed juror,
