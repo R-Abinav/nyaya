@@ -21,6 +21,19 @@ router.post('/investigate', jurorController.investigateWithAllJurors);
 router.get('/info', jurorController.getJurorInfo);
 
 /**
+ * GET /juror/reasoning/:caseId
+ * Every juror's persisted reasoning trail for a case (structured: tool calls, findings, stop reason,
+ * and — for a juror that declined to commit — why confidence stayed low).
+ */
+router.get('/reasoning/:caseId', jurorController.getCaseReasoning);
+
+/**
+ * GET /juror/reasoning/:caseId/:jurorId
+ * One juror's persisted reasoning trail for a case.
+ */
+router.get('/reasoning/:caseId/:jurorId', jurorController.getJurorReasoning);
+
+/**
  * GET /juror/:jurorId
  * Get detailed information about a specific juror
  *

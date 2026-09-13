@@ -2,6 +2,10 @@ require('dotenv').config();
 
 module.exports = {
   PORT: process.env.PORT || 3000,
+  // Base URL the juror agent's real x402 evidence calls hit — the same server process hosts both the
+  // agent and the /evidence/search-news gateway route (see x402HederaGateway.js), so this defaults to
+  // loopback on PORT rather than a second deployed service.
+  EVIDENCE_GATEWAY_BASE_URL: process.env.EVIDENCE_GATEWAY_BASE_URL || `http://localhost:${process.env.PORT || 3000}`,
   ADMIN_API_KEY: process.env.ADMIN_API_KEY,
   JWT_SECRET: process.env.JWT_SECRET || 'development-only-change-me',
   ADMIN_EMAIL: process.env.ADMIN_EMAIL,
@@ -40,6 +44,23 @@ module.exports = {
 
   // Temporary x402 payment adapter. Replace with the Hedera gateway later.
   DUMMY_X402_COST_HBAR: process.env.DUMMY_X402_COST_HBAR || '0.01',
+
+  // Real Hedera testnet connection, shared with packages/contracts.
+  HEDERA_RPC_URL: process.env.HEDERA_RPC_URL || 'https://testnet.hashio.io/api',
+
+  // Each juror's real, on-chain-registered private keys. Never hardcoded, never committed —
+  // these come from backend/.env, which is gitignored the same way the contracts package's is.
+  JUROR_SKEPTIC_PK: process.env.JUROR_SKEPTIC_PK,
+  JUROR_SKEPTIC_HOT_PK: process.env.JUROR_SKEPTIC_HOT_PK,
+  JUROR_PRAGMATIST_PK: process.env.JUROR_PRAGMATIST_PK,
+  JUROR_PRAGMATIST_HOT_PK: process.env.JUROR_PRAGMATIST_HOT_PK,
+  JUROR_MAVERICK_PK: process.env.JUROR_MAVERICK_PK,
+  JUROR_MAVERICK_HOT_PK: process.env.JUROR_MAVERICK_HOT_PK,
+
+  // The agent's own Pinata key, for pinning its reveal-time reasoning trail to IPFS. Deliberately separate
+  // from the operator's own key (OPERATOR_PINATA_JWT, in packages/contracts/.env, used by the
+  // resolution-checker) — confirmed isolated, neither side can read the other's key.
+  AGENT_PINATA_JWT: process.env.AGENT_PINATA_JWT,
 
   // Legacy APIs (for price checks, etc.)
   COINGECKO_API_URL: 'https://api.coingecko.com/api/v3',

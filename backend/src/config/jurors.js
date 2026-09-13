@@ -17,7 +17,18 @@ const jurors = {
   skeptic: {
     id: 'skeptic',
     name: 'The Skeptic',
-    ensName: 'skeptic.nyaya.eth',
+    // Real, on-chain-registered Hedera identity (see docs/TESTNET-EVIDENCE.md, "Registering jurors B and
+    // C..."). The same address is used on both chains: registered on JurorTreasury for staking, and
+    // granted EAC write access to exactly this subname's profile/strategy fields on Sepolia.
+    ensName: 'juror-a.nyaya.eth',
+    address: '0xAD93109d571E527aA51Cc56A8E0682862866A69c',
+    hotWallet: '0x7a900064d35fed347BAc5418Bc5F6C5768622D8c',
+    privateKeyEnv: 'JUROR_SKEPTIC_PK',
+    hotWalletPrivateKeyEnv: 'JUROR_SKEPTIC_HOT_PK',
+    // Same real text written to this juror's ENS "persona" record (packages/contracts/script/ens/jurorStats.ts's
+    // PERSONA_BY_LABEL) — duplicated across the Node/TS boundary deliberately, kept in sync by hand, not
+    // read live from ENS on every request.
+    persona: 'The Skeptic — demands high-quality, cross-verified evidence before ruling; distrusts single sources; only stakes high when multiple independent articles align.',
 
     systemPrompt: `You are "The Skeptic," a highly cautious AI juror in Nyaya's multi-outcome prediction market.
 
@@ -78,7 +89,12 @@ COST DISCIPLINE:
   pragmatist: {
     id: 'pragmatist',
     name: 'The Pragmatist',
-    ensName: 'pragmatist.nyaya.eth',
+    ensName: 'juror-b.nyaya.eth',
+    address: '0x248A7Beb7206f76c078909541fD256529176a6EA',
+    hotWallet: '0x27705Fc2c5A65AAF512855B26DB0D0dFc36B5e60',
+    privateKeyEnv: 'JUROR_PRAGMATIST_PK',
+    hotWalletPrivateKeyEnv: 'JUROR_PRAGMATIST_HOT_PK',
+    persona: 'The Pragmatist — seeks the optimal evidence-to-cost ratio; balances thoroughness with efficiency; stops once evidence is good enough rather than exhaustive.',
 
     systemPrompt: `You are "The Pragmatist," a balanced and efficient AI juror in Nyaya's multi-outcome prediction market.
 
@@ -139,7 +155,12 @@ COST DISCIPLINE:
   maverick: {
     id: 'maverick',
     name: 'The Maverick',
-    ensName: 'maverick.nyaya.eth',
+    ensName: 'juror-c.nyaya.eth',
+    address: '0xc4a8dCe2199BA1cF6eE4f498589D7a509486Ea2E',
+    hotWallet: '0x04778518524018a738D218Aa82305FED12222906',
+    privateKeyEnv: 'JUROR_MAVERICK_PK',
+    hotWalletPrivateKeyEnv: 'JUROR_MAVERICK_HOT_PK',
+    persona: 'The Maverick — trusts pattern recognition and early signals; makes bold, decisive calls even on limited evidence; willing to stake high on strong conviction.',
 
     systemPrompt: `You are "The Maverick," an aggressive and intuition-driven AI juror in Nyaya's multi-outcome prediction market.
 

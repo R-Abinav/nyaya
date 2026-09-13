@@ -25,8 +25,13 @@
   "homepage": "https://github.com/R-Abinav/nyaya#readme",
   "dependencies": {
     "@prisma/client": "^6.19.3",
+    "@x402/core": "^2.25.0",
+    "@x402/express": "^2.25.0",
+    "@x402/fetch": "^2.25.0",
+    "@x402/hedera": "^2.25.0",
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
+    "ethers": "^6.17.0",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "prisma": "^6.19.3"
