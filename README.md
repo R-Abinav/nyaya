@@ -64,70 +64,17 @@ The subname carries real, live reputation data anyone can look up directly: `cas
 ## Architecture
 
 ```mermaid
-graph TB
-    subgraph Frontend["frontend/ — React + Vite"]
-        FE_Pages["Jurors / Cases / My Positions pages"]
-        FE_Wallet["wagmi + viem wallet"]
-    end
+graph LR
+    Frontend["Frontend<br/>React + wagmi"]
+    Backend["Backend<br/>Express + juror agent"]
+    Hedera["Hedera contracts<br/>Treasury, Resolver, Share Market"]
+    Sepolia["Sepolia contracts<br/>ENS identity, Anchor"]
 
-    subgraph Backend["backend/ — Express"]
-        BE_Jurors["GET /jurors, /cases, /activity"]
-        BE_Agent["jurorAgent.js — reasoning loop"]
-        BE_Demo["demoJobRunner.js — demo trigger"]
-        BE_X402GW["x402HederaGateway.js"]
-        BE_Reader["contracts.js — ethers reader"]
-    end
-
-    subgraph Contracts["packages/contracts/ — Solidity, Foundry"]
-        C_Treasury["JurorTreasury.sol"]
-        C_Resolver["NyayaResolver.sol"]
-        C_Market["JurorShareMarket.sol"]
-        C_Distributor["JurorShareDistributor.sol"]
-        C_Anchor["NyayaAnchor.sol — Sepolia"]
-    end
-
-    subgraph Scripts["packages/contracts/script/"]
-        S_ENS["ens/ — ENSv2 registration + EAC"]
-        S_ATS["ats/ — ATS token issuance"]
-        S_Resolver["resolver/ — open case, resolution checker, settle"]
-        S_Anchor["anchor/ — relay Hedera to Sepolia"]
-    end
-
-    subgraph External["External"]
-        ATS["Asset Tokenization Studio"]
-        Blocky["Blocky402 x402 facilitator"]
-        ENS["ENSv2 protocol (Sepolia)"]
-        LLM["OpenRouter — NVIDIA Nemotron"]
-        Evidence["Launch Library 2, GitHub, OpenSky"]
-        Pinata["IPFS via Pinata"]
-    end
-
-    FE_Pages --> BE_Jurors
-    FE_Wallet -->|buy / sell shares, real signed tx| C_Market
-    BE_Jurors --> BE_Reader
-    BE_Reader --> C_Resolver
-    BE_Reader --> C_Market
-
-    BE_Agent --> LLM
-    BE_Agent --> BE_X402GW
-    BE_X402GW --> Blocky
-    Blocky --> C_Treasury
-    BE_Agent -->|commit, reveal| C_Resolver
-    BE_Agent --> Pinata
-
-    BE_Demo --> S_Resolver
-    S_Resolver --> Evidence
-    S_Resolver -->|submitOutcome, settle| C_Resolver
-
-    C_Resolver --> C_Treasury
-    C_Resolver --> C_Market
-    C_Market --> C_Distributor
-    C_Market -->|mint, burn, control list| ATS
-
-    S_ENS --> ENS
-    S_ATS --> ATS
-    S_Anchor -->|mirror settlement + ENS stats| C_Anchor
-    S_Anchor -->|writes casesJudged, cumulativeReturnBps| ENS
+    Frontend -->|reads via API| Backend
+    Frontend -->|buy / sell shares, signed tx| Hedera
+    Backend -->|commit, reveal, settle| Hedera
+    Backend -->|x402 payment via Blocky402| Hedera
+    Hedera -->|relay settlement + stats| Sepolia
 ```
 
 ## Data flow: one case, start to finish
@@ -234,9 +181,3 @@ GET  /cases, /cases/:id            real case state + per-juror commit/reveal tra
 GET  /activity                     recent on-chain events, for the live activity panel
 POST /demo/run-case                runs a real short-window case end to end (admin-gated)
 ```
-
-## What is real versus what is scoped out
-
-Every number in the UI traces to a live chain read. Nothing is seeded, mocked, or hardcoded — this was deliberately audited more than once during the build.
-
-Scoped out, stated plainly rather than left silent: the flight-delay case type is built but not demoed, because its only live data source (OpenSky's position feed) cannot honestly answer a schedule-vs-actual delay question, only a ground/airborne snapshot. Only the `search_news` evidence tool is wired to real x402 payment; the rest use a direct fetch. The Graph subgraph and MCP server are designed in `docs/ARCHITECTURE.md` but not built for this submission.
