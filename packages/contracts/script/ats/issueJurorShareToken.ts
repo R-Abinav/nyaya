@@ -20,6 +20,7 @@ import {
   assertValidEquityValues,
   deployEquityInputs,
   factoryAbi,
+  isinCheckDigit,
   MARKET_ABI,
   TINYBAR,
   TREASURY_ABI,
@@ -137,13 +138,22 @@ async function main() {
     { role: ATS_ROLES.CORPORATE_ACTION, members: [operator.address] },
   ];
 
+  // Per-juror name/symbol/ISIN, overridable so this same script issues every juror's token, not just A's.
+  // The ISIN's check digit is always computed via isinCheckDigit, never hand-picked, even for the default.
+  const tokenName = process.env.ATS_TOKEN_NAME ?? "Nyaya Juror A Share";
+  const tokenSymbol = process.env.ATS_TOKEN_SYMBOL ?? "NYJA";
+  const isinPrefix = process.env.ATS_ISIN_PREFIX ?? "US000000000"; // 11 chars: 2-letter country + 9 alphanumeric
+  if (!/^[A-Z]{2}[A-Z0-9]{9}$/.test(isinPrefix)) {
+    throw new Error(`ATS_ISIN_PREFIX "${isinPrefix}" must be 2 letters followed by 9 alphanumerics (11 chars total).`);
+  }
+  const isin = `${isinPrefix}${isinCheckDigit(isinPrefix)}`;
+
   const equityData = {
     security: {
       resolver: atsResolver,
       maxSupply: MAX_SHARE_SUPPLY,
       resolverProxyConfiguration: { key: EQUITY_CONFIG_ID, version: equityConfigVersion },
-      // ATS validates the ISO 6166 check digit: "US00000000" + check digit 2. assertValidEquityValues recomputes it.
-      erc20MetadataInfo: { name: "Nyaya Juror A Share", symbol: "NYJA", isin: "US0000000002", decimals: 2 },
+      erc20MetadataInfo: { name: tokenName, symbol: tokenSymbol, isin, decimals: 2 },
       rbacs,
       externalPauses: [],
       externalControlLists: [],
@@ -236,7 +246,15 @@ async function main() {
   deployments.shareTokens = { ...(deployments.shareTokens ?? {}), [jurorKey.address]: tokenAddress };
   writeDeployments(deployments);
   console.log(`\nwrote token address to deployments/hedera.json`);
-  console.log(`\nNext: JUROR_ADDRESS=${jurorKey.address} JUROR_PK=${jurorKey.privateKey} HOT_PK=${hotWallet.privateKey} npm run ats:prove`);
+  // Raw keys are only safe to echo for freshly-generated throwaway accounts (the established "print for
+  // inspection" convention). When JUROR_PK/HOT_PK were passed in — a real, durable identity being reused —
+  // print the env var names instead, never the values, even though they're already the same secret already
+  // sitting in whichever .env supplied them.
+  if (reusing) {
+    console.log(`\nNext: JUROR_ADDRESS=${jurorKey.address} JUROR_PK=$JUROR_PK HOT_PK=$HOT_PK npm run ats:prove  (reuse the same env vars you just passed in)`);
+  } else {
+    console.log(`\nNext: JUROR_ADDRESS=${jurorKey.address} JUROR_PK=${jurorKey.privateKey} HOT_PK=${hotWallet.privateKey} npm run ats:prove`);
+  }
 }
 
 main().catch((error) => {

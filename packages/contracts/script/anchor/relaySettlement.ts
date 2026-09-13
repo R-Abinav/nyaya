@@ -25,13 +25,15 @@ import {
   artifactAbi,
   assertFunctionsExist,
   contract,
-  decodeLog,
+  decodeLogs,
   hederaDeployments,
   hederaProvider,
   send,
   sepoliaAnchorAddress,
   sepoliaSigner,
 } from "./anchorConfig.js";
+import { readDeployments as readSepoliaDeployments } from "../ens/ensConfig.js";
+import { getJurorOnChainStats, writeJurorDynamicStats, type JurorLabel } from "../ens/jurorStats.js";
 
 const GAS = { recordVerdict: 150_000n, recordReturnCheckpoint: 120_000n } as const;
 
@@ -57,13 +59,22 @@ async function main() {
   const receipt = await hedera.getTransactionReceipt(settleTx);
   if (!receipt) throw new Error(`No receipt for ${settleTx} on Hedera`);
 
-  const settled = decodeLog<{
+  // A real bug hit here for real: settle() emits one JurorSettled per participant, so a case with several
+  // real jurors (case 6 had three) puts more than one JurorSettled in the SAME receipt. decodeLog (singular)
+  // returns whichever comes first, which is only ever correct by accident. decodeLogs (plural) + filtering
+  // by this juror's own address is what actually identifies the right one.
+  type JurorSettledEvent = {
     name: "JurorSettled";
     args: { caseId: bigint; juror: string; result: bigint; stake: bigint; x402Spend: bigint; net: bigint };
-  }>(receipt, resolverIface, "JurorSettled");
-  if (settled.args.caseId !== caseId || settled.args.juror.toLowerCase() !== juror.toLowerCase()) {
+  };
+  const allSettled = decodeLogs<JurorSettledEvent>(receipt, resolverIface, "JurorSettled");
+  const settled = allSettled.find(
+    (entry) => entry.args.caseId === caseId && entry.args.juror.toLowerCase() === juror.toLowerCase(),
+  );
+  if (!settled) {
     throw new Error(
-      `${settleTx}'s JurorSettled event is for case ${settled.args.caseId}, juror ${settled.args.juror}, not the requested case ${caseId}, juror ${juror}.`,
+      `${settleTx}'s receipt has no JurorSettled event for case ${caseId}, juror ${juror} — found: ` +
+        allSettled.map((e) => `case ${e.args.caseId} juror ${e.args.juror}`).join("; "),
     );
   }
   const { result, stake, x402Spend, net } = settled.args;
@@ -141,6 +152,41 @@ async function main() {
   console.log(`  Verdict tx:           ${verdictReceipt.hash}`);
   console.log(`  ReturnCheckpoint tx:  ${checkpointReceipt.hash}`);
   console.log(`  Mirrors Hedera settle tx: ${settleTx}`);
+
+  // Same real settlement, same operator, same Sepolia chain already being written to above — this is the
+  // hook that keeps each juror's ENS demo metadata (casesJudged/cumulativeReturnBps/lastCaseId) current
+  // without a separate step someone has to remember to re-run after every future case. Additive only: if
+  // this juror has no ENS subname on record, or the resolver isn't deployed, log and move on rather than
+  // fail a relay that already succeeded at its actual job (mirroring to the anchor).
+  try {
+    const sepoliaDeployments = readSepoliaDeployments();
+    const ensResolverAddress = sepoliaDeployments.contracts?.PermissionedResolver;
+    const labelByAddress: Record<string, JurorLabel> = {
+      [sepoliaDeployments.jurorA ?? ""]: "juror-a",
+      [sepoliaDeployments.jurorB ?? ""]: "juror-b",
+      [sepoliaDeployments.jurorC ?? ""]: "juror-c",
+    };
+    const label = labelByAddress[juror];
+    if (!ensResolverAddress || !label) {
+      console.log(`  (skipping ENS stats update: no resolver or no juror label recorded for ${juror})`);
+    } else {
+      const stats = await getJurorOnChainStats(hedera, resolverAddress, juror);
+      const { casesJudgedTx, cumulativeReturnBpsTx, lastCaseIdTx } = await writeJurorDynamicStats(
+        provider,
+        operator,
+        ensResolverAddress,
+        label,
+        stats,
+        (label2, tx, gasLimit) => send(provider, operator, label2, tx, gasLimit),
+      );
+      console.log(`\nUpdated ${label}.nyaya.eth's ENS demo metadata from this same settlement:`);
+      console.log(`  casesJudged=${stats.casesJudged} tx ${casesJudgedTx}`);
+      console.log(`  cumulativeReturnBps=${stats.cumulativeReturnBps} tx ${cumulativeReturnBpsTx}`);
+      console.log(`  lastCaseId=${stats.lastCaseId} tx ${lastCaseIdTx}`);
+    }
+  } catch (error) {
+    console.error(`  ENS stats update failed (anchor relay above still succeeded): ${(error as Error).message}`);
+  }
 }
 
 main().catch((error) => {

@@ -18,7 +18,11 @@ export function env(name: string): string {
 }
 
 export function hederaProvider(): JsonRpcProvider {
-  return new JsonRpcProvider(env("HEDERA_RPC_URL"));
+  // batchMaxCount: 1 disables ethers' default JSON-RPC batching. Hashio rejects eth_getLogs specifically
+  // when it arrives inside a batch ("Method eth_getLogs is not permitted as part of batch requests") — the
+  // same real bug already hit and fixed in backend/src/config/contracts.js's getCaseType, now needed here
+  // too for jurorStats.ts's queryFilter(JurorSettled) call.
+  return new JsonRpcProvider(env("HEDERA_RPC_URL"), undefined, { batchMaxCount: 1 });
 }
 
 export function sepoliaSigner(): { provider: JsonRpcProvider; operator: Wallet } {
