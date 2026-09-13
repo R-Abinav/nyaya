@@ -217,9 +217,13 @@ sell, trade value 50:   reserve pays 50  →  49 to seller, 1 to Case Bounty Tre
 
 The resolver holds the Case Bounty Treasury, since that is where cases are opened. The share market forwards each fee to it.
 
-**Two ways to fund a case bounty:**
+> **Historical defect, fixed by the step-12 redeploy.** The resolver originally live at `0xeD67F63B90Af9c436B36A37f048f259568F05ac5` predated both `cancel` and `openCaseFromTreasury`, so a case it never resolved permanently locked its jurors' stakes, and Case Bounty Treasury funds had no function that could ever spend them. That address is no longer the live resolver and whatever was stranded there stays stranded — it is not migrated. The current live resolver (`packages/contracts/deployments/hedera.json`) has both functions from genesis; see `docs/TESTNET-EVIDENCE.md` for which proofs ran against which address.
+
+**Two ways to fund a case bounty, both implemented:**
 - `openCase()` is permissionless. Whoever calls it attaches the bounty as `msg.value`.
-- An operator-gated function opens a case funded from the accumulated Case Bounty Treasury balance. This is the only path by which that balance can become a bounty.
+- `openCaseFromTreasury()` is operator-gated and draws the bounty from the accumulated Case Bounty Treasury balance. It is the only path by which that balance can become a bounty, and so the only way it is ever spent. It reverts with `InsufficientCaseBountyTreasury(available, requested)` if the balance is short, before a case id is consumed or any state is written, so a failed call leaves nothing behind and an underfunded case cannot exist.
+
+Each case records which of the two funded it, in storage as `bountySource` and in the `CaseOpened` event, so the source is read from the case rather than inferred from who called. Every refund path reads that field: a bounty returned on cancellation, or on a settlement with no correct juror, goes back to the external opener's `refundOf` credit or to the Case Bounty Treasury according to the case's own record, never according to who triggered the refund.
 
 **In the demo:** with little trading volume in a short demo, the fee treasury will accumulate negligible funds. In practice, every demo case will be funded by the operator calling `openCase()` directly, acting as an external opener. The fee-funded path is meant for a live deployment with real volume. The demo will not meaningfully exercise it.
 
@@ -241,16 +245,22 @@ This is a conscious tradeoff. Three jurors on one model are more likely to fail 
 
 ## Identity
 
-Each juror is an ENSv2 subname on Sepolia. Enhanced Access Control grants two roles on each subname:
+**Built on Sepolia**, against the real ENSv2 protocol deployment (not a fork or mock): `nyaya.eth` is registered, `packages/contracts/script/ens/` deploys and wires our own `UserRegistry` and `PermissionedResolver` instances under it, and each of the three jurors has a subname (`juror-a.nyaya.eth`, `juror-b.nyaya.eth`, `juror-c.nyaya.eth`) with Enhanced Access Control configured and proven with real transactions in `docs/TESTNET-EVIDENCE.md`. Addresses are in `packages/contracts/deployments/sepolia.json`.
 
-- **`OPERATOR_ROLE`**, held by the same operator key that reports resolutions and writes the anchor, is the only role that can write the juror's `score` text record (the mirrored current return figure).
-- **The juror's own operating key** may write only descriptive fields, such as a strategy or bio describing how it reasons and what it prioritises. It is explicitly denied write access to `score`.
+Enhanced Access Control scopes two text-record roles per subname, both inside our own `PermissionedResolver` instance:
+
+- **The operator** writes the `score` and `returnRate` text records (the mirrored current return figures). There is no separately-named "OPERATOR_ROLE" role on-chain; concretely, the operator holds `SET_TEXT`/`SET_TEXT_ADMIN` at the resolver's `ROOT_RESOURCE`, which EnhancedAccessControl's `_effectiveRoles` ORs into every resource's permission check, so no per-subname grant is needed for these two keys.
+- **Each juror's own key** may write only `profile` and `strategy`, granted per-subname and per-key via `authorizeTextRoles`, scoped to exactly `resource(node, keccak256("profile"))` / `resource(node, keccak256("strategy"))`. It is never granted anything on `resource(node, 0)` (the "any field of this name" grant) or on the `score`/`returnRate` parts, so it cannot write its own score by construction, not by convention.
 
 ENS holds only the current score snapshot, not history. Case-by-case history lives in the subgraph and is not duplicated in ENS.
 
 This stops a juror from inflating its own public reputation record, which would otherwise make an ENS-hosted score worthless as a credential. It does not remove operator trust, since the operator role can write anything to that field. That is the same operator-trust category as resolution reporting and the anchor, extended to one more write path.
 
+The split is proven, not just configured: a juror's own key writing `profile` succeeds, that same key attempting `score` fails on-chain with the specific `EACUnauthorizedAccountRoles` error (not a generic revert), and the operator writing `score` on the same subname immediately afterward succeeds — all with real transaction hashes, for all three jurors, in `docs/TESTNET-EVIDENCE.md`.
+
 ## Components
+
+Built today, with testnet transactions in `docs/TESTNET-EVIDENCE.md`: the juror treasury, the resolver, the share market and the share distributor (Hedera, with unit tests too); the ENSv2 identity layer — nyaya.eth, our own subregistry and resolver instances, the three juror subnames, and their Enhanced Access Control split (Sepolia, scripted rather than unit-tested, since it calls the real deployed ENSv2 protocol contracts directly); and the Sepolia anchor (unit-tested, and proven against the real deployed contract with a real relay of real Hedera settlement data). **Everything else below is design, not code**: the juror agents, the Evidence Gateway, the resolution checkers, the subgraph and the MCP server. None of those packages exist in the repo yet.
 
 **Juror treasury (`packages/contracts/src/jury/JurorTreasury.sol`, Hedera).** The juror registry (each juror's key and hot wallet) and every juror's HBAR. It has one controller, the resolver, which is wired in once after deployment.
 
@@ -263,7 +273,19 @@ This stops a juror from inflating its own public reputation record, which would 
 - **Distributions are declared through ATS and paid by our distributor.** `JurorShareDistributor`, one per juror, receives the skim from the resolver, declares it as an ATS dividend with an immediate record date, and pays holders when they claim against ATS's snapshot. ATS's dividend feature records a record date, a snapshot and per-holder entitlements, but no ATS contract transfers funds. Executing the payment is their separate Mass Payout application, a Postgres-backed service we deliberately do not run. So the skim is declared on ATS, and our distributor pays HBAR against the ATS snapshot. Never write, say, or show "ATS mass payout paid the holders".
 - **The identity gate stays permissive for the demo.** ATS only enforces KYC when internal KYC is switched on for a token, so a judge can buy shares without an identity flow while the control list stays fully active.
 
-**Anchor (`packages/contracts/src/anchor/`, Sepolia).** Records finalised case results, including per-juror stake, spend, reward, net, return and skim, plus the outcome evidence CID. Deliberately minimal.
+**Identity (`packages/contracts/script/ens/`, Sepolia).** `nyaya.eth`, registered through the real ETHRegistrar commit-reveal flow; our own `UserRegistry` and `PermissionedResolver` instances, deployed as UUPS proxies via `VerifiableFactory` and wired on as its subregistry and resolver; the three juror subnames underneath; and Enhanced Access Control scoping each subname's `score`/`returnRate` text records to the operator and `profile`/`strategy` to the juror's own key, proven with real transactions including the specific rejection a juror gets for attempting `score`. No SDK — every call is a direct contract call with ABIs pulled from `contracts-v2`'s own pinned-commit deployment artifacts, the same discipline as the ATS integration. See "Identity" above for the mechanism and `docs/TESTNET-EVIDENCE.md` for the transactions.
+
+**Anchor (`packages/contracts/src/anchor/NyayaAnchor.sol`, Sepolia).** Deliberately separate in purpose from the ENSv2 resolver above, even though both live on Sepolia: the resolver holds a juror's current score snapshot, overwritten each time; this anchor holds full historical events for indexing, append-only, and is the only source The Graph's subgraph will ever read, since Hedera has no hosted Subgraph Studio support. Operator-gated only, same key as every other operator action. Three events, mirroring Hedera exactly:
+
+- **`Verdict(caseId, juror, result, ruling, stake, x402Spend, net)`** — per juror per case. `result` mirrors `NyayaResolver.Result` (`Correct`/`Incorrect`/`Unrevealed`/`NoCommitment`/`Cancelled`) index for index, so a non-reveal forfeit, the bug-signal state, and a no-fault cancellation are never collapsed into a binary win/lose. `ruling` is `Ruling.None` unless the juror actually revealed.
+- **`ReturnCheckpoint(caseId, juror, cumulativeNet, cumulativeCapital)`** — a juror's two running totals immediately after `caseId` settled, the figures the return metric is built from (`cumulativeNet / cumulativeCapital`), never a per-case percentage.
+- **`Distribution(juror, dividendId, kind, holder, amount, amountPerUnit)`** — one juror's dividend history. `kind` (`Declared`/`Claimed`) distinguishes the dividend being declared (`holder` zero, `amount` the pot, `amountPerUnit` the distributor's own fixed-point rate) from one holder's claim against it (`holder` the claimant, `amount` their payout, `amountPerUnit` unused).
+
+**Every numeric amount above is a tinybar, Hedera's 8-decimal unit** — `stake`, `x402Spend`, `net`, `cumulativeNet`, `cumulativeCapital`, and `Distribution.amount` — never an 18-decimal Sepolia-native value, and this contract holds no ETH. `amountPerUnit` on a `Declared` row is the one field that isn't a plain tinybar figure at all: it carries the distributor's own fixed-point scaling. Getting this wrong is exactly the bug that produced a false "real ATS differs from the mock" divergence report one layer down, in the distributor's own testnet run; the contract's own comments repeat this warning at the point anyone reading the source would need it.
+
+A manually-invoked relay script (`packages/contracts/script/anchor/`, not yet an automatic watcher) reads one already-settled Hedera case's real data — the step-6 case, by default — and writes it here. It refuses to relay a `ReturnCheckpoint` it can't vouch for: before trusting the live `cumulativeNet`/`cumulativeCapital`, it checks that no later Hedera case has also settled or been cancelled for that juror, since either would mean the live totals reflect more than just the case being relayed.
+
+Does not yet anchor the outcome evidence CID that an earlier design pass for this section described; that would be a new event field, not something this step built. Flagged here rather than left implied.
 
 **Juror agents (`packages/agent/`).** Three instances. Each reads a case, runs a reasoning loop choosing Evidence Gateway tools for that case type and paying x402 per call, decides when more evidence is not worth its price, sizes stake to its confidence, commits, and after the commit deadline pins its evidence trail to IPFS and reveals with the trail's CID.
 
@@ -307,7 +329,7 @@ case opens with a bounty
 | Free-tier model availability | Tool-calling support and rate limits on OpenRouter's free Nemotron endpoint must be confirmed before the agent loop depends on them |
 | Exit liquidity, and reserve shortfall | Only 30% of purchases stay in the redemption reserve, and redemptions are paid at the current price. A rush of sellers, or a juror whose return rose after people bought, can exceed it. The sale then reverts rather than part-paying. See "Return-scaled pricing" above |
 | ATS declares distributions but does not pay them | ATS's dividend feature records a snapshot and per-holder entitlements; moving the money is its separate Mass Payout application, which we deliberately do not run. Our distributor pays against the ATS snapshot. Never describe this as ATS mass payout having paid |
-| ENSv2 write-path libraries are preview-only | Plan on direct contract calls via ethers against documented Sepolia addresses |
+| ENSv2 write-path libraries are preview-only | Called the deployed contracts directly with ethers against addresses verified byte-for-byte against `contracts-v2`'s own pinned-commit deployment manifest, rather than any SDK. Two real surprises this caught: `IRegistry.getSubregistry`/`getResolver` take the label string, not the tokenId that `setSubregistry`/`setResolver` take; and a commit-reveal wait timed from before the commit transaction is sent, not from its confirmed block timestamp, undercounts real wall-clock time and can fire `register()` a few seconds too early |
 | ATS feels heavy for a speculative token | Use what makes it ATS: the compliance control as an anti-wash-trading measure and mass payout as the real distribution mechanism. Keep the identity gate permissive during the demo so judges are not blocked |
 | Demo depends on a real clock | Pre-seed a case close to its resolution time. There is no admin override, since the operator reporting an outcome early would be a faked result |
 
