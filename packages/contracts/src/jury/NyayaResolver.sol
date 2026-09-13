@@ -23,7 +23,10 @@ contract NyayaResolver {
         Correct,
         Incorrect,
         Unrevealed,
-        NoCommitment
+        NoCommitment,
+        /// The case was cancelled: the stake came back, only the evidence spend is lost. Appended, never
+        /// reordered, because the agent and the subgraph read this enum's index.
+        Cancelled
     }
 
     struct Case {
@@ -33,6 +36,7 @@ contract NyayaResolver {
         BountySource bountySource;
         Ruling outcome;
         bool settled;
+        bool cancelled;
         uint256 bounty;
     }
 
@@ -113,6 +117,7 @@ contract NyayaResolver {
         uint256 rolledIn,
         uint256 rolledOut
     );
+    event CaseCancelled(uint256 indexed caseId, uint256 stakeRefunded, uint256 bountyReturned);
     event RefundCredited(address indexed account, uint256 indexed caseId, uint256 amount);
     event RefundWithdrawn(address indexed account, uint256 amount);
     /// `retainedNet` is net minus skim: what the juror keeps. The recorded track record stays pre-skim.
@@ -146,6 +151,9 @@ contract NyayaResolver {
     error OutcomeAlreadySubmitted();
     error OutcomeNotSubmitted();
     error AlreadySettled();
+    error GracePeriodNotOver();
+    error InsufficientCaseBountyTreasury(uint256 available, uint256 requested);
+    error AlreadyCancelled();
     error NothingToWithdraw();
     error TransferFailed();
     error DistributionAddressAlreadySet();
@@ -170,13 +178,50 @@ contract NyayaResolver {
     // --- opening ---
 
     /// Permissionless: whoever opens the case attaches the bounty as msg.value.
-    function openCase(
+    function openCase(string calldata caseType, string calldata question, uint64 commitDeadline, uint64 resolutionTime)
+        external
+        payable
+        returns (uint256 caseId)
+    {
+        caseId = _open(commitDeadline, resolutionTime, msg.value, BountySource.External);
+        emit CaseOpened(
+            caseId, msg.sender, BountySource.External, msg.value, commitDeadline, resolutionTime, caseType, question
+        );
+    }
+
+    /// Operator-gated: the bounty comes out of the Case Bounty Treasury, which is the only way that balance is
+    /// ever spent. Trade fees and settlement remainders accumulate there and would otherwise be stranded.
+    function openCaseFromTreasury(
         string calldata caseType,
         string calldata question,
         uint64 commitDeadline,
-        uint64 resolutionTime
-    ) external payable returns (uint256 caseId) {
-        if (msg.value == 0) revert NoBounty();
+        uint64 resolutionTime,
+        uint256 bounty
+    ) external onlyOperator returns (uint256 caseId) {
+        // Checked before anything is written, so a short treasury cannot leave a half-opened case behind.
+        if (bounty > caseBountyTreasury) revert InsufficientCaseBountyTreasury(caseBountyTreasury, bounty);
+        caseBountyTreasury -= bounty;
+        caseId = _open(commitDeadline, resolutionTime, bounty, BountySource.CaseBountyTreasury);
+        emit CaseOpened(
+            caseId,
+            msg.sender,
+            BountySource.CaseBountyTreasury,
+            bounty,
+            commitDeadline,
+            resolutionTime,
+            caseType,
+            question
+        );
+    }
+
+    /// The opener is recorded for both paths, but it is `bountySource` that decides where a refund goes, never
+    /// the opener and never whoever calls cancel. The event is emitted by each caller rather than here, because
+    /// passing the two calldata strings across this boundary as well puts the stack over its limit.
+    function _open(uint64 commitDeadline, uint64 resolutionTime, uint256 bounty, BountySource source)
+        private
+        returns (uint256 caseId)
+    {
+        if (bounty == 0) revert NoBounty();
         // forge-lint: disable-next-line(block-timestamp)
         if (commitDeadline <= block.timestamp || resolutionTime <= commitDeadline) revert BadSchedule();
         caseId = ++caseCount;
@@ -184,11 +229,8 @@ contract NyayaResolver {
         c.opener = msg.sender;
         c.commitDeadline = commitDeadline;
         c.resolutionTime = resolutionTime;
-        c.bountySource = BountySource.External;
-        c.bounty = msg.value;
-        emit CaseOpened(
-            caseId, msg.sender, BountySource.External, msg.value, commitDeadline, resolutionTime, caseType, question
-        );
+        c.bountySource = source;
+        c.bounty = bounty;
     }
 
     // --- juror actions ---
@@ -313,6 +355,38 @@ contract NyayaResolver {
         // forge-lint: disable-next-line(arbitrary-send-eth)
         (bool ok,) = to.call{value: amount}("");
         if (!ok) revert TransferFailed();
+    }
+
+    /// Anyone may cancel a case the operator never resolved, once the grace period has passed. Every committed
+    /// juror gets its whole stake back, revealed or not, and the bounty returns to whoever funded it.
+    ///
+    /// Deliberately not the non-reveal forfeit: not revealing is a juror's own choice during normal operation
+    /// and costs it the stake, while a missing outcome is a platform failure that costs the jurors nothing but
+    /// the evidence money they already spent.
+    function cancel(uint256 caseId) external {
+        Case storage c = _case(caseId);
+        if (c.cancelled) revert AlreadyCancelled();
+        if (c.settled) revert AlreadySettled();
+        if (c.outcome != Ruling.None) revert OutcomeAlreadySubmitted();
+        // forge-lint: disable-next-line(block-timestamp)
+        if (block.timestamp < c.resolutionTime + GRACE_PERIOD) revert GracePeriodNotOver();
+        c.cancelled = true;
+
+        uint256 refunded = 0;
+        address[] storage jurors = participants[caseId];
+        for (uint256 i = 0; i < jurors.length; ++i) {
+            address juror = jurors[i];
+            if (commitments[caseId][juror].hash != bytes32(0)) {
+                // forge-lint: disable-next-line(calls-loop)
+                refunded += treasury.unlockStake(juror, caseId);
+            }
+            // Stake 0, so the recorded loss is the evidence spend alone, as the docs specify.
+            _record(caseId, juror, Result.Cancelled, 0, 0);
+        }
+
+        _returnBounty(caseId, c);
+        // forge-lint: disable-next-line(reentrancy-events)
+        emit CaseCancelled(caseId, refunded, c.bounty);
     }
 
     function withdrawRefund() external {
