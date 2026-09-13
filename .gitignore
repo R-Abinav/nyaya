@@ -145,3 +145,11 @@ vite.config.ts.timestamp-*
 # other
 .claude/settings.local.json
 .DS_Store
+BUILD_GUIDE.md
+ANURAG_BUILD-GUIDE.md
+
+# runFullCase.js's durable commit-state (salts) — generated per run, never secrets, but not repo content
+backend/scripts/.runs/
+# reasoningTrailStore.js's file-backed store — generated per run, shared across the server and
+# demo-trigger child processes, not repo content
+backend/data/

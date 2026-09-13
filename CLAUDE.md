@@ -8,7 +8,7 @@ A market in AI jurors.
 
 Three AI juror agents investigate real-world questions ("cases"), paying per investigation via x402. Each juror rules independently on every case through commit-reveal, staking an amount scaled to its own confidence. Once the case resolves against an objectively checkable source, each juror is scored independently: correct jurors split the case's reward pool in proportion to stake, and incorrect jurors are slashed.
 
-Each juror has an ATS-issued share token whose price tracks the juror's return on capital. Anyone can buy shares in a juror they think will keep performing, and holders receive 20% of the juror's net profit on every winning case through ATS mass payout.
+Each juror has an ATS-issued share token whose price tracks the juror's return on capital. Anyone can buy shares in a juror they think will keep performing, and holders receive 20% of the juror's net profit on every winning case, declared through ATS and paid by our distributor.
 
 Nobody bets on case outcomes. Cases exist only to generate each juror's track record. The juror share market is the entire product surface. See `docs/PRIOR-ART.md` before proposing changes to it.
 
@@ -18,7 +18,7 @@ Nobody bets on case outcomes. Cases exist only to generate each juror's track re
 pnpm install                      # install all workspaces
 pnpm -F contracts build           # forge build
 pnpm -F contracts test            # forge test
-pnpm -F contracts deploy:hedera   # forge script against the hedera RPC endpoint
+pnpm -F contracts deploy:hedera   # forge create + cast via the Hedera deploy script (forge script can't fork through Hashio)
 pnpm -F contracts deploy:sepolia  # forge script against the sepolia RPC endpoint
 pnpm -F agent dev                 # run a juror agent against one case
 pnpm -F evidence-gateway dev      # run the x402 gateway locally
@@ -34,6 +34,7 @@ pnpm -F web dev                   # Vite dev server
 - Agent, gateway, MCP server: Node + TypeScript, ethers v6
 - Juror models: all three jurors run NVIDIA Nemotron (free tier) via OpenRouter, differentiated by system prompt and tool preferences, not by model
 - Evidence: the resolution checker's raw evidence and every juror's evidence trail are pinned to IPFS (Pinata free tier), with only the CID on-chain
+- ATS: call Asset Tokenization Studio's **contracts** directly with ethers, using the ABIs published in `@hashgraph/asset-tokenization-contracts`. Not the SDK: `@hashgraph/asset-tokenization-sdk` v8.0.0 has no headless signer (`SupportedWallets` is MetaMask, WalletConnect, DFNS, Fireblocks, AWS KMS), and `Network.connect` expects a browser wallet, so a Node script holding a private key cannot drive it. Do not use the undocumented `RPCTransactionAdapter.setSignerOrProvider` seam either; it depends on internals their docs do not cover. Hedera's track text allows "SDK, contracts, web app, or a combination", and ATS's compliance registry, roles and dividend snapshots do the same work whichever entry point calls them. Still never run ATS's reference web app or its Postgres-backed Mass Payout app: a script is reproducible by judges, a manual MetaMask flow is not
 - Frontend: React + Vite + Tailwind + shadcn/ui. `lightweight-charts` for the ticker
 - Wallet: MetaMask + wagmi + ethers over Hedera's EVM JSON-RPC relay. Do not add HashConnect or HashPack
 
@@ -52,7 +53,7 @@ packages/web/                React frontend
 
 ## Which chain holds what
 
-Hedera testnet holds money and tokens: the resolver (juror treasuries, commit-reveal, stakes, settlement), the ATS-issued juror shares and their bonding-curve market, and the Evidence Gateway's settlement.
+Hedera testnet holds money and tokens: the resolver (juror treasuries, commit-reveal, stakes, settlement), the ATS-issued juror shares and their return-scaled share market, and the Evidence Gateway's settlement.
 
 Sepolia holds identity and read paths: ENSv2 juror subnames with Enhanced Access Control roles and a permissioned score record, and a small anchor contract that mirrors finalised results so a standard subgraph can index them.
 
@@ -85,6 +86,7 @@ Read `docs/SPONSOR-REQUIREMENTS.md` before claiming any track is satisfied.
 - `docs/ARCHITECTURE.md` — full system design, scoring math with worked example, treasury, case types, limitations
 - `docs/PRIOR-ART.md` — what similar projects already won with, and what we must not converge onto
 - `docs/SPONSOR-REQUIREMENTS.md` — verbatim qualification requirements per track
+- `docs/TESTNET-EVIDENCE.md` — the real Hedera transactions proving each step actually works on testnet
 - `.claude/rules/` — conventions that load automatically when you open files in a given package
 
 ## Working style for this repo

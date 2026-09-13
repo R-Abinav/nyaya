@@ -1,0 +1,11 @@
+const express = require('express');
+const controller = require('../controllers/walletController');
+const { requireUser } = require('../middleware/auth');
+const router = express.Router();
+router.use(requireUser);
+router.get('/', controller.wallet);
+router.post('/deposit', controller.deposit);
+router.post('/withdraw', controller.withdraw);
+router.post('/transfer', controller.transfer);
+router.get('/transactions', controller.transactions);
+module.exports = router;

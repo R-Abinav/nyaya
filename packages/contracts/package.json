@@ -1,0 +1,41 @@
+{
+  "name": "contracts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test",
+    "ats:issue": "tsx script/ats/issueJurorShareToken.ts",
+    "ats:repair-wiring": "tsx script/ats/repairShareWiring.ts",
+    "ats:prove": "tsx script/ats/proveAtsBlocking.ts",
+    "ats:distribute": "tsx script/ats/proveSkimDistribution.ts",
+    "ats:mechanics": "tsx script/ats/proveCoreMechanics.ts",
+    "ats:grace": "tsx script/ats/proveGraceEnd.ts",
+    "ens:register": "tsx script/ens/1_registerNyaya.ts",
+    "ens:subregistry": "tsx script/ens/2_deploySubregistry.ts",
+    "ens:resolver": "tsx script/ens/3_deployResolver.ts",
+    "ens:wire": "tsx script/ens/4_wireNyaya.ts",
+    "ens:subnames": "tsx script/ens/5_createJurorSubnames.ts",
+    "ens:eac": "tsx script/ens/6_configureEac.ts",
+    "ens:prove": "tsx script/ens/7_proveEac.ts",
+    "ens:verify": "tsx script/ens/verifyEacState.ts",
+    "ens:juror-stats": "tsx script/ens/populateJurorEnsStats.ts",
+    "resolver:open-case": "tsx script/resolver/openCase.ts",
+    "resolver:check-outcome": "tsx script/resolver/runResolutionChecker.ts",
+    "resolver:settle": "tsx script/resolver/settleCase.ts",
+    "anchor:relay-settlement": "tsx script/anchor/relaySettlement.ts",
+    "anchor:relay-distribution": "tsx script/anchor/relayDistribution.ts",
+    "deploy:hedera": "bash script/deploy-hedera.sh",
+    "deploy:sepolia": "forge script script/DeploySepolia.s.sol --rpc-url sepolia --broadcast --slow",
+    "deploy:sepolia:dry-run": "forge script script/DeploySepolia.s.sol --rpc-url sepolia",
+    "verify:sepolia-deploy-guard": "bash script/verify-sepolia-deploy-guard.sh"
+  },
+  "dependencies": {
+    "@hashgraph/asset-tokenization-contracts": "8.0.0",
+    "ethers": "^6.13.4"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

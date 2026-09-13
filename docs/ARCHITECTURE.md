@@ -2,7 +2,7 @@
 
 ## One market
 
-Nyaya has one market: the juror share market. Each of three AI jurors has an ATS-issued share token, priced on a bonding curve that reads the juror's recorded return on capital. Buying shares is a long position on that juror's future performance. Holders receive 20% of the juror's net profit on every winning case through ATS mass payout.
+Nyaya has one market: the juror share market. Each of three AI jurors has an ATS-issued share token, priced from the juror's recorded return on capital. Buying shares is a long position on that juror's future performance. Holders receive 20% of the juror's net profit on every winning case, declared through ATS and paid by our distributor.
 
 Cases exist only to generate track records. Nobody bets on how a case resolves. There is no outcome token and no AMM.
 
@@ -11,7 +11,7 @@ Cases exist only to generate track records. Nobody bets on how a case resolves. 
 | What | Chain | Reason |
 |---|---|---|
 | Resolver: juror treasuries, commit-reveal, stakes, settlement | Hedera testnet | Sub-cent fixed-USD fees make many small per-investigation payments viable; three-second finality suits fast settlement |
-| ATS juror shares and their bonding-curve market | Hedera testnet | Asset Tokenization Studio lives on Hedera |
+| ATS juror shares and their return-scaled share market | Hedera testnet | Asset Tokenization Studio lives on Hedera |
 | Evidence Gateway x402 settlement | Hedera testnet | Settled through the Blocky402 facilitator |
 | ENSv2 juror subnames, Enhanced Access Control roles, score record | Sepolia | ENSv2 beta only exists on Sepolia |
 | Anchor contract and subgraph | Sepolia | Hedera has no hosted Subgraph Studio support |
@@ -51,12 +51,15 @@ open      question, case type, commit deadline, resolution time, and a bounty, e
           by whoever calls openCase() or drawn from the Case Bounty Treasury by the operator
 commit    each of the 3 jurors investigates (paying x402 per call), then submits
           keccak256(caseId, juror, ruling, confidence, salt) and locks a stake from its treasury
-reveal    after the commit deadline, each juror pins its evidence trail to IPFS and reveals ruling,
-          confidence, salt, and the trail's CID
-resolve   after the resolution time, the operator runs the case type's checker and submits the outcome
-          plus the IPFS CID of the raw evidence the checker used
+reveal    between the commit deadline and the resolution time, each juror pins its evidence trail to IPFS
+          and reveals ruling, confidence, salt, and the trail's CID (no spend figure; spend comes from
+          tagged withdrawals)
+resolve   between the resolution time and the end of a 24-hour grace period, the operator runs the case
+          type's checker and submits the outcome plus the IPFS CID of the raw evidence the checker used
 settle    anyone triggers settlement: score each juror, split the pool, apply the skim, record return
 publish   operator writes the result to the Sepolia anchor and updates each juror's ENS score record
+cancel    if no outcome has been submitted when the grace period ends, anyone can cancel: every committed
+          juror's stake is refunded in full and the bounty returns to its source
 ```
 
 Every juror rules on every case. There is no panel selection and no majority vote. With three jurors, each one already gets equal at-bats, and each is scored independently against the resolved outcome.
@@ -66,6 +69,12 @@ Every juror rules on every case. There is no panel selection and no majority vot
 **Evidence trails are pinned after the commit deadline, never before.** IPFS content is not private. A CID announced to the network can be found and fetched without anyone being told it, so a trail pinned during the commit phase could leak its ruling to the other jurors.
 
 **A juror that commits but does not reveal is slashed as incorrect.** Otherwise a juror that sees it is losing could simply withhold its reveal.
+
+**A case with no reported outcome is cancelled, not graded.** The operator can submit an outcome from the resolution time until a 24-hour grace period ends. If nothing has been submitted by then, anyone, not just the operator, can cancel the case. Cancellation refunds every committed juror's full stake, whether or not it revealed, and returns the bounty to its source (the external opener or the Case Bounty Treasury). This is deliberately separate from the non-reveal rule above. Not revealing is a juror's own choice during normal operation and forfeits the stake. A missing outcome is a platform failure: there is nothing to grade, it is not the jurors' fault, and so the consequence is more forgiving.
+
+Once the grace period ends, outcome submission reverts unconditionally, even for the operator, and cancellation is the only remaining path. That closes the race between a late submission and a cancellation landing in the same or an adjacent block.
+
+**Evidence spend on a cancelled case is still recorded as a loss.** The stake comes back, but any x402 money the juror spent investigating is gone from its treasury. That spend is added to the juror's cumulative capital deployed and subtracted from its cumulative net profit. This can penalise a juror for an operator failure rather than a bad ruling. That is a known and accepted cost: excluding the spend would let the tracked return silently drift away from the juror's actual treasury balance over many cases, which is worse.
 
 **Stake is locked at commit.** Because stake scales with confidence, the stake amount reveals roughly how confident a juror is before the reveal. The ruling itself stays hidden, and the ruling is what a free-rider would need.
 
@@ -85,9 +94,12 @@ There is no on-chain dispute window. It would cost contract complexity and demo 
 ### Definitions, per case
 
 - `bounty`: the case's bounty, whether attached by an external opener or drawn from the Case Bounty Treasury
-- `s_i`: juror i's stake; `x_i`: juror i's total x402 spend on this case
-- `P = bounty + Σ s_j` over every incorrect juror (the reward pool)
+- `s_i`: juror i's stake
+- `x_i`: juror i's total x402 spend on this case, read by the resolver from that juror's withdrawals tagged with this case id. The juror never submits it
+- `P = bounty + Σ s_j` over every incorrect or unrevealed juror, plus any stakes rolled over from an earlier case nobody got right (the reward pool)
 - `S = Σ s_j` over every correct juror
+- `R = P / S`: the pool per unit of correct stake, one number shared by every correct juror in the case
+- `α_i = x_i / s_i`: juror i's spend relative to its own stake
 
 ### Rules
 
@@ -95,44 +107,63 @@ There is no on-chain dispute window. It would cost contract complexity and demo 
 - An incorrect juror loses its whole stake to the pool.
 - `net_i = reward_i − x_i` if correct, or `−s_i − x_i` if incorrect. The x402 term is never dropped: a juror that overspends investigating sees its profit fall even when it wins.
 - `return_i = net_i / (s_i + x_i)`, the return on all capital deployed for the case, not on stake alone.
-- If no juror is correct, the bounty returns to its source (the external opener, or the Case Bounty Treasury) and the slashed stakes roll into the next case's pool.
+- Money can be lost for two different causes, and they are recorded the same way but described separately:
+  - **Lost from an incorrect ruling:** the stake is slashed and the spend is gone, so net is `−s_i − x_i` on capital `s_i + x_i`.
+  - **Lost from a cancelled case:** the stake is refunded but the spend is gone, so net is `−x_i` on capital `x_i`.
 
-### Why this is wealth-neutral
+  Both go into the same cumulative totals. A cancelled case with no spend changes nothing.
+- A juror that withdraws evidence money for a case but never commits has that spend recorded the same way, as a third, separately labelled cause: net `−x_i` on capital `x_i`. **This is not automatically a bug.** Below a confidence threshold (`CONFIDENCE_THRESHOLD_BPS` in `backend/src/services/jurorAgent.js`, currently 4000 = 40%), an agent deliberately declines to stake on a low-conviction ruling rather than commit anyway — the evidence spend already happened and stands as a real, accepted loss, and skipping the commit is the intended behavior, not a malfunction. The same event can also still mean a genuine crash, missed deadline, or failed transaction; the on-chain accounting alone can't tell the two apart, since it only sees a withdrawal with no matching commitment. Settlement still emits `SpentWithoutCommitting` for every occurrence, on top of the normal accounting, but it is a **"juror declined to rule" signal to watch**, not an automatic bug flag — telling a legitimate decline apart from an actual failure needs the agent's own reasoning trail (persisted and exposed by the backend), which a real decline has and a crash does not. The money left its treasury, so leaving it out would let the tracked return drift from the real balance. Evidence withdrawals close at the commit deadline.
+- If no juror is correct, the bounty returns to its source and the slashed stakes roll into the pool of the next case that settles with at least one correct juror and whose commit window was still open when the rollover appeared. Cases of different types overlap, and jurors who had already locked their stakes never saw that money in the pool, so it must not land in their case. The resolver keeps a single "last added" time for the rollover. That is conservative: a case open for only part of a growing rollover waits for a later case rather than receiving part of it. An external opener claims its refund with `withdrawRefund` rather than having it sent, so an opener whose address rejects HBAR cannot block a settlement. A bounty from the Case Bounty Treasury goes straight back into it.
+- Every payout is rounded down to the tinybar. Whatever is left of the pool after the correct jurors are paid goes to the Case Bounty Treasury, never to an individual juror.
+
+### What stake size does and does not buy
 
 This is a stake-weighted parimutuel mechanism, the same family as a racetrack tote board. That suits the product: people are, in effect, backing AI jurors the way they would back horses. Describe it only as a parimutuel in the docs, pitch, and UI. Never claim a stronger scoring or truthfulness property than the derivation below proves.
 
-Every correct juror earns the same gross reward per unit of stake, `reward_i / s_i = P / S`. Individual stake size cancels out. Writing a juror's evidence spend as a fraction of its stake, `x_i = α_i · s_i`:
+Every correct juror earns exactly `R` in gross reward per unit of its own stake. Substituting `x_i = α_i · s_i`:
 
 ```
-return_i = (P·s_i/S − α_i·s_i) / (s_i + α_i·s_i) = (P/S − α_i) / (1 + α_i)
+return_i = (R·s_i − α_i·s_i) / (s_i + α_i·s_i) = (R − α_i) / (1 + α_i)
 ```
 
-`s_i` cancels. Among correct jurors, return depends only on the pool ratio, which all of them share, and on the juror's own spend efficiency `α_i`. It does not depend on how much the juror staked. Every incorrect juror's return is exactly −100%, again regardless of stake.
+`R` is the same for every correct juror in the case, so return depends only on `α_i`. Two correct jurors with the same spend-to-stake ratio get identical returns however much each staked. Two with different spending discipline relative to their own stake get different returns, as they should.
+
+**Stake size alone never buys a better return. Spending discipline relative to your own conviction does affect it, and that is the intended incentive, not a flaw.** Every incorrect juror's return is exactly −100%.
+
+**Wealth reaches return only through α.** Both directions, stated plainly, and they are consistent:
+- **With spend held proportional to stake, stake size alone does not matter.** Same `α`, same return, whether the juror staked 10 HBAR or 50.
+- **With a fixed absolute evidence spend, a larger stake produces a smaller `α`, and therefore a better return.** Evidence costs roughly the same no matter how big a juror's treasury is, so a richer juror that can stake more at the same confidence has a real, if indirect, channel to a better score.
+
+So the mechanism is not wealth-neutral in an absolute sense. It is neutral only in the narrower sense that stake size alone, with spend held proportional, does not matter.
 
 ### Worked example
 
 A case with a 20 HBAR bounty. Juror A stakes 50, spends 5 on evidence, and rules correctly. Juror B stakes 10, spends 1, and rules correctly. Juror C stakes 30, rules incorrectly, and is slashed.
 
 ```
-P = 20 + 30 = 50        S = 50 + 10 = 60        P/S = 5/6
+P = 20 + 30 = 50        S = 50 + 10 = 60        R = P/S = 5/6
 
 A: reward = 50 · 50/60 = 41.67    net = 41.67 − 5 = 36.67    capital = 55    return = 66.67%
 B: reward = 50 · 10/60 =  8.33    net =  8.33 − 1 =  7.33    capital = 11    return = 66.67%
 C: slashed 30                     net = −30 − x_C                           return = −100%
 ```
 
-Both correct jurors spent 10% of their stake on evidence (α = 0.1), so the formula gives `(5/6 − 1/10) / 1.1 = 2/3` for both. A staked five times more than B and earned exactly the same return.
+Both correct jurors spent 10% of their stake on evidence (α = 0.1), so the formula gives `(5/6 − 1/10) / 1.1 = 2/3` for both. A staked five times more than B and earned exactly the same return, because both kept the same spend-to-stake ratio.
+
+**On-chain, in tinybars.** Payouts round down: A receives 4,166,666,666 tinybars and B receives 833,333,333. That leaves 1 tinybar of the 5,000,000,000-tinybar pool, which goes to the Case Bounty Treasury. To check the identity without any rounding, tests cross-multiply instead of comparing rounded percentages: `(P·s_A − x_A·S)·(s_B + x_B) = (P·s_B − x_B·S)·(s_A + x_A)`. Here that is (2500 − 300) × 11 = (500 − 60) × 55 = 24,200.
 
 ### Shareholder skim
 
-After scoring, 20% of each juror's positive net profit for the case goes to that juror's shareholders through ATS mass payout. The remaining 80% goes to the juror's treasury. There is no skim on a negative net profit. Continuing the example:
+After scoring, 20% of each juror's positive net profit for the case goes to that juror's shareholders, declared through ATS and paid by our distributor. The remaining 80% goes to the juror's treasury. There is no skim on a negative net profit. Continuing the example:
 
 ```
 A: net 36.67 → skim 7.33 to holders, keeps 29.33    29.33 / 55 = 53.33%
 B: net  7.33 → skim 1.47 to holders, keeps  5.87     5.87 / 11 = 53.33%
 ```
 
-A flat-percentage skim scales every winning juror's retained return by the same factor of 0.8, so it does not reopen the wealth-neutrality result.
+A flat-percentage skim scales every winning juror's retained return by the same factor of 0.8, so it leaves the comparison between jurors unchanged.
+
+**On-chain, in tinybars.** The skim is 20% of the recorded net, rounded down: A's is 733,333,333 (of net 3,666,666,666) and B's is 146,666,666 (of 733,333,333). Each juror keeps exactly what is left, 2,933,333,333 and 586,666,667, so skim plus kept always equals net. The resolver holds each juror's skim until it is released to that juror's distribution address, which pays holders against the ATS snapshot.
 
 The skim is a capital-distribution rule layered on top of performance tracking. It must not distort the track record. **The juror's track record is built from pre-skim figures.** Each case contributes its pre-skim net profit and capital deployed (for A here, 36.67 on 55, a 66.67% return), never the post-skim treasury credit.
 
@@ -140,18 +171,34 @@ The tradeoff: the skim slows a juror's own treasury compounding after a win. In 
 
 ### What the mechanism does not do
 
-- **It does not verify stated confidence.** Scaling stake to confidence is an agent policy, a Kelly-criterion-style sizing choice each agent makes. The contract never checks that stated confidence was honest. It only guarantees that the payout math is wealth-neutral for whatever stake an agent picks.
-- **Evidence spend is not fully wealth-neutral.** The stake side cancels exactly, but x402 spend is subtracted as an absolute amount, and evidence costs roughly the same no matter how big a juror's treasury is. A richer juror sizing larger stakes at the same confidence has a smaller `α` for the same evidence spend, so its return is less sensitive to what it spends. The effect is small when evidence spend is small relative to stake. It grows as spend becomes a larger share of the capital deployed: if B in the example had spent 5 like A, B's return would be 22.2% instead of 66.67%. This is a known limitation, not something the mechanism eliminates.
+- **It does not verify stated confidence.** Scaling stake to confidence is an agent policy, a Kelly-criterion-style sizing choice each agent makes. The contract never checks that stated confidence was honest. It only guarantees that, at a given spend-to-stake ratio, the return is the same whatever stake an agent picks.
+- **It is not wealth-neutral in an absolute sense.** Wealth reaches return only through α, as set out above: a larger stake with the same absolute evidence spend means a smaller `α` and a better return. The effect is small when evidence spend is small relative to stake. It grows as spend becomes a larger share of the capital deployed: if B in the example had spent 5 like A, B's return would be 22.2% instead of 66.67%. This is a known limitation, not something the mechanism eliminates.
 
 ## Treasury and capital flows
 
-- **Share purchases split 70/30.** 70% of every share purchase goes into the juror's operating treasury and 30% stays in the curve reserve for redemptions. This is deliberately biased toward keeping agents funded to do their job, over perfect exit liquidity for sellers. Redemptions are limited to what the reserve holds.
-- **The resolver custodies each juror's treasury.** The juror's key can lock treasury funds as stake freely. x402 payments leave through a capped, rate-limited withdrawal path to the juror's hot wallet. Every withdrawal is tagged with a case id, and the withdrawn amount counts as that case's x402 spend. That keeps spend on-chain rather than self-reported, which matters because under-reporting spend would inflate the return the share price tracks. This withdrawal path is a documented trust leak, not a solved problem: see limitations.
+- **Share purchases split 70/30.** 70% of every share purchase goes into the juror's operating treasury and 30% stays in the redemption reserve for redemptions. This is deliberately biased toward keeping agents funded to do their job, over perfect exit liquidity for sellers. Redemptions are limited to what the reserve holds.
+- **Each juror's treasury is held in `JurorTreasury`, and only the resolver can move money out of it.** Anyone can fund a juror. The juror's own key has no withdraw function. Money leaves in exactly three ways, all triggered by the resolver: locking a stake when the juror commits, slashing that stake when the juror is wrong or doesn't reveal, and the x402 withdrawal. A locked stake can also be returned to the juror (a correct ruling, or a cancelled case). x402 payments leave through a capped, rate-limited withdrawal path to the juror's hot wallet. Every withdrawal is tagged with a case id at withdrawal time, and the withdrawn amount counts as that case's x402 spend. Settlement reads spend only from this tagged history, and the reveal has no spend field. That keeps spend on-chain rather than self-reported, which matters because under-reporting spend would inflate the return the share price tracks. This withdrawal path is a documented trust leak, not a solved problem: see limitations.
 - **Genesis is equal.** All three jurors start with the same treasury. Unequal starting capital would make the demo show differentiation by wealth rather than by skill.
-- **The share price tracks cumulative return.** The bonding curve reads the juror's return since genesis, computed as total pre-skim net profit across all its settled cases divided by total capital deployed (stake plus x402 spend) across those cases.
+- **The share price tracks cumulative return.** Return-scaled pricing reads the juror's return since genesis, computed as total pre-skim net profit across all its settled cases divided by total capital deployed (stake plus x402 spend) across those cases.
   - **Not a plain mean of per-case percentages.** A plain mean would let a large percentage swing on a tiny stake count as much as a case where real capital was at risk. Winning 200% on a 1 HBAR stake and then losing 100% on a 100 HBAR stake averages to +50%. The capital-weighted figure is (2 − 100) / 101 ≈ −97%, which is what actually happened to the money.
   - **Not a rolling window.** At the number of cases a hackathon actually runs, a window would rarely differ from the cumulative figure. Cumulative also needs simpler resolver state: two running totals per juror instead of a maintained sliding window. Revisit this if the platform ever runs at a scale where early cases meaningfully dilute recent performance.
 
+### Return-scaled pricing, not a bonding curve
+
+```
+price = max(BASE_PRICE × (10000 + returnBps) / 10000, MIN_PRICE)
+```
+
+`returnBps` is the cumulative pre-skim figure above. `MIN_PRICE` is a tenth of `BASE_PRICE`, so a juror that has lost everything it deployed still has a positive, tradeable price instead of a price of zero.
+
+**There is no supply term, and the label matters.** A conventional bonding curve raises price as supply grows, which would make a juror's price reflect how much it has been traded as well as how well it judges. A popular but mediocre juror would then price above a sharp but unnoticed one, which breaks the one claim the whole product rests on: that a juror's share price tracks its judgment quality. Since price does not rise with supply, this is not a bonding curve in the conventional sense, and calling it one would be the same kind of borrowed credibility as "proper scoring rule" or an unqualified "wealth-neutral". Call it return-scaled pricing.
+
+**What this means for the 70/30 split and the redemption reserve.** The reserve receives 30% of each purchase's trade value, and redemptions are paid only from it, at the current price. Those two facts do not line up in general:
+
+- If a juror's return rises after people buy, buying back the same shares costs more than the 30% collected for them.
+- If its return falls, redemptions are cheaper than the reserve collected, and the reserve holds a surplus.
+
+So a shortfall is a real, reachable state, not a theoretical one. When the reserve cannot cover a sale at the current price, the sale reverts and the seller keeps the shares; nothing is part-paid and no other juror's reserve is touched. The reserve is deliberately per juror. This is the known cost of the 70/30 split's bias toward keeping agents funded, and it is named in the limitations table below.
 ### Case Bounty Treasury
 
 **The 2% trade fee.** Every juror-share trade pays a fee of 2% of the trade's value. The fee is charged on top of the trade, not taken out of it:
@@ -163,15 +210,19 @@ This fee accrues to the Case Bounty Treasury.
 The fee and the 70/30 split are two separate mechanisms acting on different parts of a trade. The 70/30 split divides the trade value between the juror's treasury and the redemption reserve. The fee sits outside the trade value and never enters either pool.
 
 ```
-buy,  trade value 100:  buyer pays 102   →  70 to juror treasury, 30 to curve reserve, 2 to Case Bounty Treasury
+buy,  trade value 100:  buyer pays 102   →  70 to juror treasury, 30 to redemption reserve, 2 to Case Bounty Treasury
 sell, trade value 50:   reserve pays 50  →  49 to seller, 1 to Case Bounty Treasury
 ```
 
 The resolver holds the Case Bounty Treasury, since that is where cases are opened. The share market forwards each fee to it.
 
-**Two ways to fund a case bounty:**
+> **Historical defect, fixed by the step-12 redeploy.** The resolver originally live at `0xeD67F63B90Af9c436B36A37f048f259568F05ac5` predated both `cancel` and `openCaseFromTreasury`, so a case it never resolved permanently locked its jurors' stakes, and Case Bounty Treasury funds had no function that could ever spend them. That address is no longer the live resolver and whatever was stranded there stays stranded — it is not migrated. The current live resolver (`packages/contracts/deployments/hedera.json`) has both functions from genesis; see `docs/TESTNET-EVIDENCE.md` for which proofs ran against which address.
+
+**Two ways to fund a case bounty, both implemented:**
 - `openCase()` is permissionless. Whoever calls it attaches the bounty as `msg.value`.
-- An operator-gated function opens a case funded from the accumulated Case Bounty Treasury balance. This is the only path by which that balance can become a bounty.
+- `openCaseFromTreasury()` is operator-gated and draws the bounty from the accumulated Case Bounty Treasury balance. It is the only path by which that balance can become a bounty, and so the only way it is ever spent. It reverts with `InsufficientCaseBountyTreasury(available, requested)` if the balance is short, before a case id is consumed or any state is written, so a failed call leaves nothing behind and an underfunded case cannot exist.
+
+Each case records which of the two funded it, in storage as `bountySource` and in the `CaseOpened` event, so the source is read from the case rather than inferred from who called. Every refund path reads that field: a bounty returned on cancellation, or on a settlement with no correct juror, goes back to the external opener's `refundOf` credit or to the Case Bounty Treasury according to the case's own record, never according to who triggered the refund.
 
 **In the demo:** with little trading volume in a short demo, the fee treasury will accumulate negligible funds. In practice, every demo case will be funded by the operator calling `openCase()` directly, acting as an external opener. The fee-funded path is meant for a live deployment with real volume. The demo will not meaningfully exercise it.
 
@@ -193,22 +244,47 @@ This is a conscious tradeoff. Three jurors on one model are more likely to fail 
 
 ## Identity
 
-Each juror is an ENSv2 subname on Sepolia. Enhanced Access Control grants two roles on each subname:
+**Built on Sepolia**, against the real ENSv2 protocol deployment (not a fork or mock): `nyaya.eth` is registered, `packages/contracts/script/ens/` deploys and wires our own `UserRegistry` and `PermissionedResolver` instances under it, and each of the three jurors has a subname (`juror-a.nyaya.eth`, `juror-b.nyaya.eth`, `juror-c.nyaya.eth`) with Enhanced Access Control configured and proven with real transactions in `docs/TESTNET-EVIDENCE.md`. Addresses are in `packages/contracts/deployments/sepolia.json`.
 
-- **`OPERATOR_ROLE`**, held by the same operator key that reports resolutions and writes the anchor, is the only role that can write the juror's `score` text record (the mirrored current return figure).
-- **The juror's own operating key** may write only descriptive fields, such as a strategy or bio describing how it reasons and what it prioritises. It is explicitly denied write access to `score`.
+Enhanced Access Control scopes two text-record roles per subname, both inside our own `PermissionedResolver` instance:
+
+- **The operator** writes the `score` and `returnRate` text records (the mirrored current return figures). There is no separately-named "OPERATOR_ROLE" role on-chain; concretely, the operator holds `SET_TEXT`/`SET_TEXT_ADMIN` at the resolver's `ROOT_RESOURCE`, which EnhancedAccessControl's `_effectiveRoles` ORs into every resource's permission check, so no per-subname grant is needed for these two keys.
+- **Each juror's own key** may write only `profile` and `strategy`, granted per-subname and per-key via `authorizeTextRoles`, scoped to exactly `resource(node, keccak256("profile"))` / `resource(node, keccak256("strategy"))`. It is never granted anything on `resource(node, 0)` (the "any field of this name" grant) or on the `score`/`returnRate` parts, so it cannot write its own score by construction, not by convention.
 
 ENS holds only the current score snapshot, not history. Case-by-case history lives in the subgraph and is not duplicated in ENS.
 
 This stops a juror from inflating its own public reputation record, which would otherwise make an ENS-hosted score worthless as a credential. It does not remove operator trust, since the operator role can write anything to that field. That is the same operator-trust category as resolution reporting and the anchor, extended to one more write path.
 
+The split is proven, not just configured: a juror's own key writing `profile` succeeds, that same key attempting `score` fails on-chain with the specific `EACUnauthorizedAccountRoles` error (not a generic revert), and the operator writing `score` on the same subname immediately afterward succeeds — all with real transaction hashes, for all three jurors, in `docs/TESTNET-EVIDENCE.md`.
+
 ## Components
 
-**Resolver (`packages/contracts/src/jury/`, Hedera).** Juror registry, treasury custody, the Case Bounty Treasury and the operator-gated function that opens cases from it, the case lifecycle, commit-reveal, stake locking, operator outcome submission with evidence CID, settlement math, skim routing, the tagged x402 withdrawal path, and the per-juror return record. Emits an event for every state change the subgraph needs.
+Built today, with testnet transactions in `docs/TESTNET-EVIDENCE.md`: the juror treasury, the resolver, the share market and the share distributor (Hedera, with unit tests too); the ENSv2 identity layer — nyaya.eth, our own subregistry and resolver instances, the three juror subnames, and their Enhanced Access Control split (Sepolia, scripted rather than unit-tested, since it calls the real deployed ENSv2 protocol contracts directly); and the Sepolia anchor (unit-tested, and proven against the real deployed contract with a real relay of real Hedera settlement data). **Everything else below is design, not code**: the juror agents, the Evidence Gateway, the resolution checkers, the subgraph and the MCP server. None of those packages exist in the repo yet.
 
-**Juror shares (`packages/contracts/src/shares/`, Hedera).** ATS-issued share token per juror, a bonding curve that reads recorded return, the 70/30 purchase split, the 2% trade fee forwarded to the Case Bounty Treasury, the compliance control blocking a juror's own addresses from holding its shares, and mass payout of the skim to holders.
+**Juror treasury (`packages/contracts/src/jury/JurorTreasury.sol`, Hedera).** The juror registry (each juror's key and hot wallet) and every juror's HBAR. It has one controller, the resolver, which is wired in once after deployment.
 
-**Anchor (`packages/contracts/src/anchor/`, Sepolia).** Records finalised case results, including per-juror stake, spend, reward, net, return and skim, plus the outcome evidence CID. Deliberately minimal.
+**Resolver (`packages/contracts/src/jury/`, Hedera).** Sole controller of the juror treasury, the Case Bounty Treasury and the operator-gated function that opens cases from it, the case lifecycle, commit-reveal, stake locking, operator outcome submission with evidence CID, settlement math, skim routing, the tagged x402 withdrawal path, and the per-juror return record. Emits an event for every state change the subgraph needs.
+
+**Juror shares (`packages/contracts/src/shares/`, Hedera).** One ATS security token per juror, issued through Asset Tokenization Studio, plus `JurorShareMarket`: return-scaled pricing, the 70/30 purchase split, the 2% trade fee forwarded to the Case Bounty Treasury, and the skim distribution. What ATS itself does here, verified against its v8.0.0 source:
+
+- **Buying mints, selling burns, through ATS.** The market holds `ROLE_ISSUER` to mint and `ROLE_CONTROLLER` to burn on each juror's token.
+- **The compliance registry does the blocking, not us.** When a juror's token is registered, the market adds that juror's own key and its hot wallet to the token's control list, using `ROLE_CONTROL_LIST`. ATS's `mint` runs its own compliance check on the recipient, so a purchase from either address reverts inside ATS with `AccountIsBlocked`. The market deliberately does not repeat that check: a second check would fire first and leave ATS's compliance registry decorative.
+- **Distributions are declared through ATS and paid by our distributor.** `JurorShareDistributor`, one per juror, receives the skim from the resolver, declares it as an ATS dividend with an immediate record date, and pays holders when they claim against ATS's snapshot. ATS's dividend feature records a record date, a snapshot and per-holder entitlements, but no ATS contract transfers funds. Executing the payment is their separate Mass Payout application, a Postgres-backed service we deliberately do not run. So the skim is declared on ATS, and our distributor pays HBAR against the ATS snapshot. Never write, say, or show "ATS mass payout paid the holders".
+- **The identity gate stays permissive for the demo.** ATS only enforces KYC when internal KYC is switched on for a token, so a judge can buy shares without an identity flow while the control list stays fully active.
+
+**Identity (`packages/contracts/script/ens/`, Sepolia).** `nyaya.eth`, registered through the real ETHRegistrar commit-reveal flow; our own `UserRegistry` and `PermissionedResolver` instances, deployed as UUPS proxies via `VerifiableFactory` and wired on as its subregistry and resolver; the three juror subnames underneath; and Enhanced Access Control scoping each subname's `score`/`returnRate` text records to the operator and `profile`/`strategy` to the juror's own key, proven with real transactions including the specific rejection a juror gets for attempting `score`. No SDK — every call is a direct contract call with ABIs pulled from `contracts-v2`'s own pinned-commit deployment artifacts, the same discipline as the ATS integration. See "Identity" above for the mechanism and `docs/TESTNET-EVIDENCE.md` for the transactions.
+
+**Anchor (`packages/contracts/src/anchor/NyayaAnchor.sol`, Sepolia).** Deliberately separate in purpose from the ENSv2 resolver above, even though both live on Sepolia: the resolver holds a juror's current score snapshot, overwritten each time; this anchor holds full historical events for indexing, append-only, and is the only source The Graph's subgraph will ever read, since Hedera has no hosted Subgraph Studio support. Operator-gated only, same key as every other operator action. Three events, mirroring Hedera exactly:
+
+- **`Verdict(caseId, juror, result, ruling, stake, x402Spend, net)`** — per juror per case. `result` mirrors `NyayaResolver.Result` (`Correct`/`Incorrect`/`Unrevealed`/`NoCommitment`/`Cancelled`) index for index, so a non-reveal forfeit, the bug-signal state, and a no-fault cancellation are never collapsed into a binary win/lose. `ruling` is `Ruling.None` unless the juror actually revealed.
+- **`ReturnCheckpoint(caseId, juror, cumulativeNet, cumulativeCapital)`** — a juror's two running totals immediately after `caseId` settled, the figures the return metric is built from (`cumulativeNet / cumulativeCapital`), never a per-case percentage.
+- **`Distribution(juror, dividendId, kind, holder, amount, amountPerUnit)`** — one juror's dividend history. `kind` (`Declared`/`Claimed`) distinguishes the dividend being declared (`holder` zero, `amount` the pot, `amountPerUnit` the distributor's own fixed-point rate) from one holder's claim against it (`holder` the claimant, `amount` their payout, `amountPerUnit` unused).
+
+**Every numeric amount above is a tinybar, Hedera's 8-decimal unit** — `stake`, `x402Spend`, `net`, `cumulativeNet`, `cumulativeCapital`, and `Distribution.amount` — never an 18-decimal Sepolia-native value, and this contract holds no ETH. `amountPerUnit` on a `Declared` row is the one field that isn't a plain tinybar figure at all: it carries the distributor's own fixed-point scaling. Getting this wrong is exactly the bug that produced a false "real ATS differs from the mock" divergence report one layer down, in the distributor's own testnet run; the contract's own comments repeat this warning at the point anyone reading the source would need it.
+
+A manually-invoked relay script (`packages/contracts/script/anchor/`, not yet an automatic watcher) reads one already-settled Hedera case's real data — the step-6 case, by default — and writes it here. It refuses to relay a `ReturnCheckpoint` it can't vouch for: before trusting the live `cumulativeNet`/`cumulativeCapital`, it checks that no later Hedera case has also settled or been cancelled for that juror, since either would mean the live totals reflect more than just the case being relayed.
+
+Does not yet anchor the outcome evidence CID that an earlier design pass for this section described; that would be a new event field, not something this step built. Flagged here rather than left implied.
 
 **Juror agents (`packages/agent/`).** Three instances. Each reads a case, runs a reasoning loop choosing Evidence Gateway tools for that case type and paying x402 per call, decides when more evidence is not worth its price, sizes stake to its confidence, commits, and after the commit deadline pins its evidence trail to IPFS and reveals with the trail's CID.
 
@@ -228,8 +304,9 @@ case opens with a bounty
   -> each juror commits hash + confidence-scaled stake on Hedera
   -> commit deadline passes; jurors reveal
   -> resolution time: operator runs the checker, pins evidence to IPFS, submits outcome + CID
+     (if no outcome arrives within the 24h grace period: anyone cancels, stakes refunded in full, bounty to its source)
   -> settle: wrong jurors slashed, pool split by stake among correct jurors
-  -> net profit and return recorded; 20% of positive net skimmed to holders via ATS mass payout
+  -> net profit and return recorded; 20% of positive net skimmed to holders: declared through ATS, paid by our distributor
   -> share prices move on the updated return
   -> operator updates each juror's ENS score record
   -> result written to Sepolia anchor; subgraph indexes it
@@ -245,11 +322,13 @@ case opens with a bounty
 | Runaway agent loop | x402 spend has no per-case cap, by design. A buggy loop is bounded only by the withdrawal rate limit |
 | Wash trading through fresh addresses | The compliance control blocks a juror's known key and hot wallet from holding its shares. It cannot stop funds forwarded to a fresh address while the ATS identity gate stays permissive for the demo |
 | Stated confidence is not verified | Confidence-scaled staking is an agent policy. The contract does not enforce it |
-| Evidence spend is not fully wealth-neutral | See "What the mechanism does not do" above |
+| Wealth reaches return only through α | For a fixed evidence spend, a bigger stake means a smaller `α` and a better return. Known and accepted; see "What stake size does and does not buy" above |
+| Cancelled-case spend counts as a loss | A juror can be penalised for an operator failure, not a bad ruling. Accepted, because excluding it would let tracked return drift from the real treasury balance |
 | Correlated model failure | All three jurors run Nemotron. Differentiation comes from prompts and tool preferences |
 | Free-tier model availability | Tool-calling support and rate limits on OpenRouter's free Nemotron endpoint must be confirmed before the agent loop depends on them |
-| Exit liquidity | Only 30% of purchases stay in the redemption reserve. A rush of sellers can exceed it |
-| ENSv2 write-path libraries are preview-only | Plan on direct contract calls via ethers against documented Sepolia addresses |
+| Exit liquidity, and reserve shortfall | Only 30% of purchases stay in the redemption reserve, and redemptions are paid at the current price. A rush of sellers, or a juror whose return rose after people bought, can exceed it. The sale then reverts rather than part-paying. See "Return-scaled pricing" above |
+| ATS declares distributions but does not pay them | ATS's dividend feature records a snapshot and per-holder entitlements; moving the money is its separate Mass Payout application, which we deliberately do not run. Our distributor pays against the ATS snapshot. Never describe this as ATS mass payout having paid |
+| ENSv2 write-path libraries are preview-only | Called the deployed contracts directly with ethers against addresses verified byte-for-byte against `contracts-v2`'s own pinned-commit deployment manifest, rather than any SDK. Two real surprises this caught: `IRegistry.getSubregistry`/`getResolver` take the label string, not the tokenId that `setSubregistry`/`setResolver` take; and a commit-reveal wait timed from before the commit transaction is sent, not from its confirmed block timestamp, undercounts real wall-clock time and can fire `register()` a few seconds too early |
 | ATS feels heavy for a speculative token | Use what makes it ATS: the compliance control as an anti-wash-trading measure and mass payout as the real distribution mechanism. Keep the identity gate permissive during the demo so judges are not blocked |
 | Demo depends on a real clock | Pre-seed a case close to its resolution time. There is no admin override, since the operator reporting an outcome early would be a faked result |
 
@@ -261,4 +340,4 @@ case opens with a bounty
 
 ## Demo sequence
 
-The full loop on live testnet: a case opens with a bounty (never a coin-flip case), a juror visibly pays x402 for real data, all three commit, then reveal, the checker's outcome is reported with its IPFS evidence CID, the wrong juror is slashed and the pool splits by stake on screen, the skim pays out to holders through ATS mass payout, juror share prices move on the Confidence Ticker, the ENS score record updates, and an Ask Nyaya query reflects the new state seconds later. Then hand the judge the keyboard for one live Ask Nyaya question.
+The full loop on live testnet: a case opens with a bounty (never a coin-flip case), a juror visibly pays x402 for real data, all three commit, then reveal, the checker's outcome is reported with its IPFS evidence CID, the wrong juror is slashed and the pool splits by stake on screen, the skim pays out to holders against an ATS-declared snapshot, juror share prices move on the Confidence Ticker, the ENS score record updates, and an Ask Nyaya query reflects the new state seconds later. Then hand the judge the keyboard for one live Ask Nyaya question.

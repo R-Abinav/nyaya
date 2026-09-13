@@ -1,0 +1,27 @@
+{
+  "name": "nyaya",
+  "version": "1.0.0",
+  "description": "A prediction market on hedera where you can bet on AI",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/R-Abinav/nyaya.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/R-Abinav/nyaya/issues"
+  },
+  "homepage": "https://github.com/R-Abinav/nyaya#readme",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1"
+  }
+}
