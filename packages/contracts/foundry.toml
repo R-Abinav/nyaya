@@ -5,6 +5,9 @@ libs = ["lib"]
 solc = "0.8.30"
 # Pinned below solc's default (prague) so one bytecode runs on both chains; Hedera testnet verified with HederaSmoke (MCOPY executed).
 evm_version = "cancun"
+# DeploySepolia.s.sol reads the existing address file (to carry forward nyaya.eth's tokenId/expiry and the
+# juror addresses across a redeploy) and writes it back on a real broadcast. Scoped to deployments/ only.
+fs_permissions = [{ access = "read-write", path = "deployments/" }]
 
 [lint]
 ignore = ["test/**/*.sol"]

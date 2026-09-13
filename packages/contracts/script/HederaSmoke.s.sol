@@ -24,7 +24,7 @@ contract HederaSmokeScript is Script {
     uint256 internal constant ONE_TINYBAR_IN_WEIBAR = 1e10;
 
     function run() external {
-        vm.startBroadcast(vm.envUint("HEDERA_PRIVATE_KEY"));
+        vm.startBroadcast(vm.envUint("OPERATOR_PRIVATE_KEY"));
         HederaSmoke smoke = new HederaSmoke();
         // forge-lint: disable-next-line(arbitrary-send-eth)
         smoke.ping{value: ONE_TINYBAR_IN_WEIBAR}("nyaya hedera smoke");
