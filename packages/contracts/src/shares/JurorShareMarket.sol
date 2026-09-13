@@ -62,7 +62,11 @@ contract JurorShareMarket {
         operator = operator_;
     }
 
-    /// Registers an ATS token as a juror's shares and immediately blocks that juror's own addresses on it.
+    /// Registers an ATS token as a juror's shares and blocks that juror's own addresses on it, unless a
+    /// previous market instance already did (ATS's control list lives on the token, not on this contract,
+    /// so it survives a market redeploy). `addToControlList` reverts `ListedAccount` for an address already
+    /// listed, which a redeploy runs into for any juror it had already registered before — checked first so
+    /// re-registering under a new market is possible at all, not just the genuinely-first registration.
     /// Requires this contract to hold ROLE_CONTROL_LIST (and later ROLE_ISSUER and ROLE_CONTROLLER) on the token.
     function registerShareToken(address juror, IAtsToken token) external onlyOperator {
         if (juror == address(0) || address(token) == address(0)) revert ZeroAddress();
@@ -72,11 +76,15 @@ contract JurorShareMarket {
 
         shareToken[juror] = token;
         shareDecimals[juror] = token.decimals();
-        // ATS returns a success flag and reverts on failure, so there is nothing to branch on.
-        // forge-lint: disable-next-line(unused-return)
-        token.addToControlList(juror);
-        // forge-lint: disable-next-line(unused-return)
-        token.addToControlList(hotWallet);
+        // ATS returns a success flag and reverts on failure, so there is nothing to branch on when it is called.
+        if (!token.isInControlList(juror)) {
+            // forge-lint: disable-next-line(unused-return)
+            token.addToControlList(juror);
+        }
+        if (!token.isInControlList(hotWallet)) {
+            // forge-lint: disable-next-line(unused-return)
+            token.addToControlList(hotWallet);
+        }
         // forge-lint: disable-next-line(reentrancy-events)
         emit ShareTokenRegistered(juror, address(token), juror, hotWallet);
     }

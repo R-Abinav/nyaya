@@ -10,6 +10,10 @@ interface IAtsToken {
     error AccountIsBlocked(address account);
     /// Thrown by `onlyAnyRole` before any compliance check, when the caller holds none of the accepted roles.
     error AccountHasNoRoles(address account, bytes32[] roles);
+    /// Thrown by `addToControlList` for an address already on the list. Confirmed live on Hedera testnet:
+    /// the control list lives on the token and survives a `JurorShareMarket` redeploy, so re-registering a
+    /// juror already blocked by a prior market instance hits this unless the caller checks first.
+    error ListedAccount(address account);
 
     /// ROLE_ISSUER or ROLE_AGENT. Reverts if the recipient is blocked by the control list.
     function mint(address to, uint256 amount) external;

@@ -81,8 +81,13 @@ contract MockAtsToken is IAtsToken, IAtsDividends {
         totalSupply -= amount;
     }
 
+    /// Real ATS reverts `ListedAccount(account)` for an address already on the list — confirmed live on
+    /// Hedera testnet when JurorShareMarket.registerShareToken tried to re-list a juror a prior market
+    /// instance had already blocked. Mirrored here so a test calling this twice on the same address behaves
+    /// the same way the deployed contract does, not silently.
     function addToControlList(address account) external returns (bool) {
         _checkAnyRole(AtsRoles.CONTROL_LIST, AtsRoles.CONTROL_LIST);
+        if (isInControlList[account]) revert ListedAccount(account);
         isInControlList[account] = true;
         return true;
     }

@@ -59,6 +59,10 @@ export type Deployments = {
   contracts: Record<string, string>;
   ats?: { factory?: string; resolver?: string };
   shareTokens?: Record<string, string>;
+  /** Per-juror JurorShareDistributor, keyed by juror address. One per juror, bound immutably to a specific
+   *  resolver at construction — see the orphaned-wiring note in docs/TESTNET-EVIDENCE.md for why a resolver
+   *  redeploy needs a fresh distributor, not a rewiring of the old one. */
+  distributors?: Record<string, string>;
 };
 
 export function readDeployments(): Deployments {
@@ -89,7 +93,7 @@ function env(name: string): string {
 
 export function connect() {
   const provider = new JsonRpcProvider(env("HEDERA_RPC_URL"));
-  const operator = new Wallet(env("HEDERA_PRIVATE_KEY"), provider);
+  const operator = new Wallet(env("OPERATOR_PRIVATE_KEY"), provider);
   return { provider, operator };
 }
 

@@ -112,6 +112,25 @@ contract JurorShareMarketTest is Test {
         assertFalse(tokenA.isInControlList(buyer));
     }
 
+    /// A market redeploy re-registering an already-blocked juror on the SAME token must not revert. Real
+    /// ATS's `addToControlList` reverts `ListedAccount` for an address already listed — hit for real on
+    /// Hedera testnet when a second `JurorShareMarket` instance tried to re-register juror A, since the
+    /// control list lives on the token and survives the market being redeployed. `registerShareToken`
+    /// checks `isInControlList` first specifically so this succeeds instead.
+    function test_RegisteringTheSameJurorOnASecondMarketInstanceDoesNotRevert() public {
+        JurorShareMarket secondMarket = new JurorShareMarket(resolver, treasury, operator);
+        tokenA.grantRole(AtsRoles.ISSUER, address(secondMarket));
+        tokenA.grantRole(AtsRoles.CONTROLLER, address(secondMarket));
+        tokenA.grantRole(AtsRoles.CONTROL_LIST, address(secondMarket));
+
+        vm.prank(operator);
+        secondMarket.registerShareToken(jurorA, tokenA);
+
+        assertEq(address(secondMarket.shareToken(jurorA)), address(tokenA));
+        assertTrue(tokenA.isInControlList(jurorA));
+        assertTrue(tokenA.isInControlList(hotA));
+    }
+
     /// If the market lacks ROLE_ISSUER, ATS's role check fires before any compliance check.
     function test_MarketWithoutIssuerRoleGetsAtsRoleError() public {
         MockAtsToken tokenB = new MockAtsToken(2);
