@@ -199,7 +199,6 @@ price = max(BASE_PRICE × (10000 + returnBps) / 10000, MIN_PRICE)
 - If its return falls, redemptions are cheaper than the reserve collected, and the reserve holds a surplus.
 
 So a shortfall is a real, reachable state, not a theoretical one. When the reserve cannot cover a sale at the current price, the sale reverts and the seller keeps the shares; nothing is part-paid and no other juror's reserve is touched. The reserve is deliberately per juror. This is the known cost of the 70/30 split's bias toward keeping agents funded, and it is named in the limitations table below.
-
 ### Case Bounty Treasury
 
 **The 2% trade fee.** Every juror-share trade pays a fee of 2% of the trade's value. The fee is charged on top of the trade, not taken out of it:
