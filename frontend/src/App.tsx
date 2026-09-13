@@ -1,188 +1,57 @@
-import { Component, FormEvent, useEffect, useState } from 'react';
-import { Link, Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { Component, type ReactNode } from 'react';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/layout';
-import { Badge, Button, Card, Dialog, Field, Input, PageHeader, StateMessage } from './components/ui';
-import { jsonBody, request } from './lib/api';
-import type { Bet, Juror, Prediction } from './types';
-import { AiBetRunner } from './components/ai-bet-runner';
-import { AuthPage } from './components/auth';
-import { Wallet } from './components/wallet';
+import { HomePage } from './components/home-page';
+import { JurorsPage } from './components/jurors-page';
+import { JurorDetailPage } from './components/juror-detail-page';
+import { CasesPage } from './components/cases-page';
+import { CaseDetailPage } from './components/case-detail-page';
+import { MyPositionsPage } from './components/my-positions-page';
+import { DemoTriggerPage } from './components/demo-trigger-page';
+import { Button } from './components/ui';
 
-function Home() {
-  const [question, setQuestion] = useState('');
-  const [price, setPrice] = useState<number>();
-  const [result, setResult] = useState<{ verdict: string; analysis?: string; toolCallCount?: number }>();
-  const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
-  async function ask(event: FormEvent) { event.preventDefault(); if (!question.trim()) return; setState('loading'); try { setResult(await request('/predict', jsonBody({ question: question.trim() }))); setState('idle'); } catch { setState('error'); } }
-  async function checkPrice() { try { setPrice((await request<{ price: number }>('/price/eth')).price); } catch { setPrice(undefined); } }
-  return <><PageHeader eyebrow="AI accountability market" title="Ask better questions." description="Nyaya is a market for independent AI jurors. Explore their evidence, compare their track records, and see how conviction translates into capital at risk." action={<Button variant="secondary" onClick={checkPrice}>{price ? `ETH $${price.toLocaleString()}` : 'Check ETH price'}</Button>} /><div className="grid gap-5 lg:grid-cols-[1.35fr_.65fr]"><Card className="bg-primary text-primary-foreground"><p className="text-sm font-semibold text-highlight">Ask Nyaya</p><h2 className="mt-8 max-w-xl text-3xl font-bold tracking-tight">A prediction is only as useful as its evidence.</h2><form onSubmit={ask} className="mt-8 flex flex-col gap-3 sm:flex-row"><Input value={question} onChange={e => setQuestion(e.target.value)} placeholder="Will Ethereum be above $3,000 at 5 p.m. UTC?" aria-label="Prediction question" /><Button className="shrink-0 bg-highlight text-ink hover:brightness-95" disabled={state === 'loading'}>{state === 'loading' ? 'Investigating…' : 'Predict'}</Button></form>{state === 'error' && <p className="mt-3 text-sm text-red-200">The prediction service could not be reached. Check the server and try again.</p>}{result && <div className="mt-5 rounded-xl bg-black/15 p-4"><div className="flex items-center justify-between"><Badge tone={result.verdict === 'yes' ? 'success' : 'danger'}>{result.verdict}</Badge><span className="text-xs opacity-70">{result.toolCallCount ?? 0} evidence calls</span></div><p className="mt-3 text-sm leading-6">{result.analysis}</p></div>}</Card><div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-1"><Card><Badge tone="warning">Read-only by design</Badge><h3 className="mt-4 text-xl font-bold">No human betting</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">Cases create a transparent track record for AI jurors. Humans can review outcomes and share performance, but never place outcome bets.</p></Card><Card><p className="text-xs font-bold uppercase tracking-[.18em] text-muted-foreground">How it works</p><div className="mt-4 grid gap-3 text-sm"><div><b>01 · Investigate</b><p className="mt-1 text-muted-foreground">Jurors pay for live evidence.</p></div><div><b>02 · Commit</b><p className="mt-1 text-muted-foreground">Their verdicts are hidden before reveal.</p></div><div><b>03 · Settle</b><p className="mt-1 text-muted-foreground">Correctness is checked against public sources.</p></div></div></Card></div></div></>;
-}
+// ─── Error boundary ───────────────────────────────────────────────────────────
 
-function Market() {
-  const [predictions, setPredictions] = useState<Prediction[]>([]);
-  const [bets, setBets] = useState<Bet[]>([]);
-  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [selected, setSelected] = useState<Prediction>();
-  async function load() { setState('loading'); try { const [p, b] = await Promise.all([request<{ predictions: Prediction[] }>('/predictions'), request<{ bets: Bet[] }>('/bets')]); setPredictions(p.predictions); setBets(b.bets); setState('ready'); } catch { setState('error'); } }
-  useEffect(() => {
-    void load();
-    const refresh = window.setInterval(async () => {
-      try {
-        const [p, b] = await Promise.all([request<{ predictions: Prediction[] }>('/predictions'), request<{ bets: Bet[] }>('/bets')]);
-        setPredictions(p.predictions);
-        setBets(b.bets);
-      } catch {
-        // Keep the last successful listing snapshot visible during transient refresh failures.
-      }
-    }, 5000);
-    return () => window.clearInterval(refresh);
-  }, []);
-  return <><PageHeader eyebrow="The market" title="Review live predictions" description="Browse active and ended cases, their outcome options, and activity generated by AI jurors." action={<Button variant="secondary" onClick={load}>Refresh</Button>} />{state === 'loading' && <StateMessage type="loading" message="Loading live listings…" />}{state === 'error' && <StateMessage type="error" message="Listings could not be loaded from the API." onRetry={load} />}{state === 'ready' && <><div className="grid gap-5 md:grid-cols-2">{predictions.map(prediction => <PredictionCard key={prediction.id} prediction={prediction} onStart={() => setSelected(prediction)} />)}{!predictions.length && <StateMessage type="empty" message="No predictions are available yet." />}</div>{selected && <AiBetRunner prediction={selected} onStake={() => { void load(); }} onClose={() => { setSelected(undefined); void load(); }} />}<Card className="mt-8"><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-muted-foreground">Activity</p><h2 className="mt-1 text-xl font-bold">Past AI bets</h2></div><span className="text-sm text-muted-foreground">{bets.length} recorded</span></div>{bets.length ? <div className="mt-5 divide-y divide-line">{bets.map((bet, i) => <div className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm" key={`${bet.predictionId}-${bet.placedAt}-${i}`}><span className="font-semibold">{bet.prediction?.options.find(o => o.id === bet.optionId)?.label ?? bet.optionId}</span><span className="text-muted-foreground">{bet.bettorId} · {new Date(bet.placedAt).toLocaleString()}</span></div>)}</div> : <p className="mt-5 text-sm text-muted-foreground">No bets have been placed yet.</p>}</Card></>}</>;
-}
+type EBState = { error?: Error };
 
-function PredictionCard({ prediction, onStart }: { prediction: Prediction; onStart: () => void }) {
-  const active = prediction.status === 'active' && !prediction.expired;
-  const modelTotals = prediction.performanceByModel ?? {};
-  const modelStakes = prediction.modelStakes ?? {};
-  return <Card className="flex flex-col"><div className="flex items-start justify-between gap-3"><Badge tone={active ? 'success' : 'muted'}>{active ? 'Active' : prediction.winningOptionId ? 'Settled' : 'Expired'}</Badge><span className="text-right text-xs text-muted-foreground">{active ? 'Closes' : 'Closed'}<br />{new Date(prediction.expiresAt).toLocaleString()}</span></div><h2 className="mt-5 text-xl font-bold leading-snug">{prediction.statement}</h2><div className="mt-5 grid gap-2">{prediction.options.map(option => { const winner = option.id === prediction.winningOptionId; return <div className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-sm ${winner ? 'bg-success/15 text-success ring-1 ring-success/30' : 'bg-muted'}`} key={option.id}><span className="flex items-center gap-2">{option.label}{winner && <Badge tone="success">✓ Winner</Badge>}</span><span className={`font-semibold ${winner ? 'text-success' : 'text-muted-foreground'}`}>{option.betCount ?? 0} bets</span></div>; })}</div><div className="mt-4 rounded-xl bg-muted p-3"><p className="text-xs font-bold uppercase tracking-[.14em] text-muted-foreground">User stakes by AI</p><div className="mt-2 grid grid-cols-3 gap-2 text-xs">{['skeptic', 'pragmatist', 'maverick'].map(modelId => <div key={modelId}><p className="font-semibold capitalize">{modelId}</p><p className="text-muted-foreground">${((modelTotals[modelId]?.stakeCents ?? modelStakes[modelId] ?? 0) / 100).toFixed(2)}</p></div>)}</div></div><div className="mt-auto flex items-center justify-between border-t border-line pt-5 text-sm text-muted-foreground"><span>Pool <b className="text-ink">${(prediction.totalPoolCents / 100).toFixed(2)}</b> · {prediction.totalBets} bets</span>{active && <Button className="!min-h-9 !px-3" onClick={onStart}>Start Bet</Button>}</div></Card>;
-}
-
-function Investigations() {
-  const [question, setQuestion] = useState(''); const [result, setResult] = useState<{ jurors: Array<{ jurorName: string; selectedOutcome: string; bettingFraction: number; stake: number; analysis: string }> }>(); const [error, setError] = useState('');
-  async function submit(e: FormEvent) { e.preventDefault(); setError(''); try { setResult(await request('/juror/investigate', jsonBody({ question }))); } catch (err) { setError(err instanceof Error ? err.message : 'Investigation failed'); } }
-  return <><PageHeader eyebrow="Evidence room" title="Investigations" description="Run a case through all three jurors and inspect their independent evidence work." /><Card><form onSubmit={submit} className="grid gap-4"><Field label="Question"><textarea className="min-h-28 rounded-xl border border-line bg-canvas p-3 text-sm text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" value={question} onChange={e => setQuestion(e.target.value)} required placeholder="Ask an objectively checkable question…" /></Field><Button disabled={!question.trim()}>Run investigation</Button></form>{error && <p className="mt-4 text-sm text-danger">{error}</p>}</Card>{result && <div className="mt-6 grid gap-5 lg:grid-cols-3">{result.jurors.map(juror => <Card key={juror.jurorName}><div className="flex items-center justify-between"><h3 className="font-bold">{juror.jurorName}</h3><Badge>{juror.selectedOutcome}</Badge></div><p className="mt-5 text-sm leading-6 text-muted-foreground">{juror.analysis}</p><dl className="mt-5 grid grid-cols-2 gap-3 border-t border-line pt-4 text-sm"><div><dt className="text-muted-foreground">Risked</dt><dd className="font-semibold">{(juror.bettingFraction * 100).toFixed(1)}%</dd></div><div><dt className="text-muted-foreground">Stake</dt><dd className="font-semibold">{juror.stake.toFixed(2)} HBAR</dd></div></dl></Card>)}</div>}</>;
-}
-
-function Jurors() {
-  const [jurors, setJurors] = useState<Juror[]>([]); const [error, setError] = useState('');
-  useEffect(() => { request<{ jurors: Juror[] }>('/juror/info').then(data => setJurors(data.jurors)).catch(err => setError(err.message)); }, []);
-  return <><PageHeader eyebrow="The panel" title="Meet the jurors" description="Three independent NVIDIA Nemotron agents use different evidence preferences and risk thresholds." />{error ? <StateMessage type="error" message={error} /> : !jurors.length ? <StateMessage type="loading" message="Loading juror profiles…" /> : <div className="grid gap-5 md:grid-cols-3">{jurors.map(juror => <Card key={juror.id}><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-xl font-bold text-primary-foreground">{juror.name.charAt(0)}</div><h2 className="mt-5 text-xl font-bold">{juror.name}</h2><p className="mt-1 text-sm text-primary">{juror.ensName ?? juror.id}</p><p className="mt-5 text-sm leading-6 text-muted-foreground">{juror.toolPreferences ? Object.entries(juror.toolPreferences).map(([key, value]) => `${key}: ${String(value)}`).join(' · ') : 'Configured evidence preferences.'}</p><Link className="mt-6 inline-flex text-sm font-semibold text-primary hover:underline" to={`/jurors/${juror.id}`}>View profile →</Link></Card>)}</div>}</>;
-}
-
-function JurorDetails() {
-  const { id = '' } = useParams(); const [juror, setJuror] = useState<Juror & { systemPrompt?: string }>(); const [error, setError] = useState('');
-  useEffect(() => { request<Juror & { systemPrompt?: string }>(`/juror/${encodeURIComponent(id)}`).then(setJuror).catch(err => setError(err.message)); }, [id]);
-  if (error) return <StateMessage type="error" message={error} />; if (!juror) return <StateMessage type="loading" message="Loading juror profile…" />;
-  return <><PageHeader eyebrow="Juror profile" title={juror.name} description={juror.ensName ?? juror.id} action={<Link className="text-sm font-semibold text-primary hover:underline" to="/jurors">← Back to panel</Link>} /><div className="grid gap-5 lg:grid-cols-[.8fr_1.2fr]"><Card><p className="text-xs font-bold uppercase tracking-[.18em] text-muted-foreground">Evidence preferences</p><div className="mt-4 flex flex-wrap gap-2">{juror.toolPreferences && Object.entries(juror.toolPreferences).map(([key, value]) => <Badge key={key}>{key}: {String(value)}</Badge>)}</div></Card><Card><p className="text-xs font-bold uppercase tracking-[.18em] text-muted-foreground">Operating brief</p><p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{juror.systemPrompt}</p></Card></div></>;
-}
-
-function Admin() {
-  const [key, setKey] = useState('');
-  const [predictions, setPredictions] = useState<Prediction[]>([]);
-  const [accounts, setAccounts] = useState<Array<{ accountId: string; role: string; balanceCents: number }>>([]);
-  const [transactions, setTransactions] = useState<Array<{ type: string; from: string; to: string; amountCents: number }>>([]);
-  const [listState, setListState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [accountsLoading, setAccountsLoading] = useState(false);
-  const [transactionsLoading, setTransactionsLoading] = useState(false);
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [ending, setEnding] = useState<Prediction>();
-  const [winningOptionId, setWinningOptionId] = useState('');
-  const [endError, setEndError] = useState('');
-  const [endingLoading, setEndingLoading] = useState(false);
-  const headers = { 'x-admin-key': key };
-
-  async function loadListings() {
-    setListState('loading');
-    try { setPredictions((await request<{ predictions: Prediction[] }>('/predictions')).predictions); setListState('ready'); }
-    catch (err) { setMessage(err instanceof Error ? err.message : 'Listings could not be loaded'); setListState('error'); }
-  }
-  async function loadProtected() {
-    await Promise.all([loadAccounts(), loadTransactions()]);
-  }
-  async function loadAccounts() {
-    setAccountsLoading(true);
-    try { setAccounts((await request<{ accounts: typeof accounts }>('/admin/accounts', { headers })).accounts); }
-    catch (err) { setMessage(err instanceof Error ? err.message : 'Accounts could not be loaded'); }
-    finally { setAccountsLoading(false); }
-  }
-  async function loadTransactions() {
-    setTransactionsLoading(true);
-    try { setTransactions((await request<{ transactions: typeof transactions }>('/admin/transactions', { headers })).transactions); }
-    catch (err) { setMessage(err instanceof Error ? err.message : 'Transactions could not be loaded'); }
-    finally { setTransactionsLoading(false); }
-  }
-  useEffect(() => { void loadListings(); }, []);
-  async function create(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault(); const form = new FormData(e.currentTarget);
-    try {
-      await request('/admin/predictions', { ...jsonBody({ statement: form.get('statement'), options: String(form.get('options')).split('\n').map(x => x.trim()).filter(Boolean), expiresAt: new Date(String(form.get('expiresAt'))).toISOString() }), headers });
-      setMessage('Listing created.'); await loadListings(); await loadProtected();
-    } catch (err) { setMessage(err instanceof Error ? err.message : 'Could not create listing'); }
-  }
-  async function transfer(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault(); const form = new FormData(e.currentTarget);
-    try { await request('/admin/accounts/transfer', { ...jsonBody({ to: String(form.get('to')).trim(), amountCents: Number(form.get('amountCents')) }), headers }); setMessage('Funds transferred.'); await loadProtected(); }
-    catch (err) { setMessage(err instanceof Error ? err.message : 'Could not transfer funds'); }
-  }
-  async function end(prediction: Prediction) {
-    setEnding(prediction);
-    setWinningOptionId('');
-    setEndError('');
-  }
-  async function removeListing(prediction: Prediction) {
-    if (!window.confirm(`Delete "${prediction.statement}"? Listings with bets cannot be deleted.`)) return;
-    try {
-      await request(`/admin/predictions/${encodeURIComponent(prediction.id)}`, { method: 'DELETE', headers });
-      setMessage('Listing deleted.');
-      await loadListings();
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Could not delete listing');
-    }
-  }
-  async function finishEnding() {
-    if (!ending || !winningOptionId) {
-      setEndError('Select the winning option before finishing.');
-      return;
-    }
-    setEndingLoading(true);
-    setEndError('');
-    try {
-      await request(`/admin/predictions/${encodeURIComponent(ending.id)}/end`, { ...jsonBody({ winningOptionId }), headers });
-      await loadListings();
-      setEnding(undefined);
-      setWinningOptionId('');
-    } catch (err) {
-      setEndError(err instanceof Error ? err.message : 'Could not end listing');
-    } finally {
-      setEndingLoading(false);
-    }
-  }
-  return <>
-    <PageHeader eyebrow="Restricted area" title="Admin console" description="Manage live listings, balances, transfers, and settlement." action={<Button variant="secondary" onClick={() => { void loadListings(); void loadProtected(); }} disabled={!key || loading}>Refresh protected data</Button>} />
-    <Card className="mb-6"><Field label="Admin API key"><Input type="password" value={key} onChange={e => setKey(e.target.value)} placeholder="Enter the configured admin key" /><Button className="mt-3" onClick={loadProtected} disabled={!key || loading}>{loading ? 'Loading…' : 'Authenticate'}</Button></Field></Card>
-    {message && <div className="mb-6 rounded-xl border border-highlight/40 bg-highlight/15 px-4 py-3 text-sm">{message}</div>}
-    <div className="grid gap-6 lg:grid-cols-2">
-      <Card><h2 className="text-xl font-bold">Create listing</h2><form onSubmit={create} className="mt-5 grid gap-4"><Field label="Statement"><Input name="statement" required /></Field><Field label="Options, one per line"><textarea name="options" className="min-h-24 rounded-xl border border-line bg-canvas p-3 text-sm text-ink outline-none focus:border-primary" required /></Field><Field label="Expires at"><Input name="expiresAt" type="datetime-local" required /></Field><Button disabled={!key}>Add listing</Button></form></Card>
-      <Card><div className="flex items-center justify-between"><h2 className="text-xl font-bold">Listings</h2><Button variant="secondary" className="!min-h-8 !px-3 text-xs" onClick={loadListings} disabled={listState === 'loading'}>↻ Refresh</Button></div>{listState === 'loading' && <div className="mt-4"><StateMessage type="loading" message="Loading listings…" /></div>}{listState === 'error' && <div className="mt-4"><StateMessage type="error" message="Listings could not be loaded." onRetry={loadListings} /></div>}{listState === 'ready' && <div className="mt-4 divide-y divide-line">{predictions.length ? predictions.map(p => <div className="py-4" key={p.id}><div className="flex justify-between gap-3"><b className="text-sm">{p.statement}</b><Badge tone={p.status === 'active' ? 'success' : 'muted'}>{p.status ?? 'unknown'}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{p.totalBets} bets · ${(p.totalPoolCents / 100).toFixed(2)}</p><div className="mt-3 flex gap-2">{p.status === 'active' && <Button variant="danger" className="!min-h-9 !px-3 text-xs" onClick={() => end(p)}>End listing</Button>}<Button variant="secondary" className="!min-h-9 !px-3 text-xs text-danger hover:border-danger/50" onClick={() => void removeListing(p)}>Delete listing</Button></div></div>) : <StateMessage type="empty" message="No listings found." />}</div>}</Card>
-      <Card><div className="flex items-center justify-between"><h2 className="text-xl font-bold">Accounts & transfers</h2><Button variant="secondary" className="!min-h-8 !px-3 text-xs" onClick={() => void loadAccounts()} disabled={accountsLoading || !key}>↻ Refresh</Button></div>{accountsLoading ? <div className="mt-4"><StateMessage type="loading" message="Loading accounts…" /></div> : <div className="mt-4 divide-y divide-line">{accounts.map(a => <div className="flex justify-between py-3 text-sm" key={a.accountId}><span>{a.accountId} <span className="text-muted-foreground">· {a.role}</span></span><b>${(a.balanceCents / 100).toFixed(2)}</b></div>)}</div>}<form onSubmit={transfer} className="mt-5 grid gap-3 border-t border-line pt-5"><Field label="Destination account"><Input name="to" placeholder="skeptic" required /></Field><Field label="Amount (USD cents)"><Input name="amountCents" type="number" min="1" step="1" required /></Field><Button variant="secondary" disabled={!key}>Transfer funds</Button></form></Card>
-      <Card><div className="flex items-center justify-between"><h2 className="text-xl font-bold">Transactions</h2><Button variant="secondary" className="!min-h-8 !px-3 text-xs" onClick={() => void loadTransactions()} disabled={transactionsLoading || !key}>↻ Refresh</Button></div>{transactionsLoading ? <div className="mt-4"><StateMessage type="loading" message="Loading transactions…" /></div> : <div className="mt-4 divide-y divide-line">{transactions.map((t, i) => <div className="py-3 text-sm" key={`${t.type}-${i}`}><b>{t.type}</b><span className="text-muted-foreground"> · {t.from} → {t.to} · ${(t.amountCents / 100).toFixed(2)}</span></div>)}</div>}</Card>
-    </div>
-    {ending && <Dialog title="End listing" onClose={() => { if (!endingLoading) setEnding(undefined); }}>
-      <p className="mt-4 text-sm leading-6 text-muted-foreground">Choose the winning option for this prediction. This will finalize the listing and run the existing settlement flow.</p>
-      <div className="mt-4 rounded-xl bg-muted p-3 text-sm font-semibold text-ink">{ending.statement}</div>
-      <fieldset className="mt-5 grid gap-3">
-        <legend className="mb-1 text-sm font-semibold text-ink">Who won this prediction?</legend>
-        {ending.options.map(option => <label key={option.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 text-sm transition ${winningOptionId === option.id ? 'border-primary bg-primary/10 text-ink' : 'border-line hover:border-primary/50'}`}>
-          <input type="radio" name="winning-option" value={option.id} checked={winningOptionId === option.id} onChange={event => setWinningOptionId(event.target.value)} disabled={endingLoading} className="h-4 w-4 accent-primary" />
-          <span>{option.label}</span>
-        </label>)}
-      </fieldset>
-      {endError && <p role="alert" className="mt-4 rounded-xl bg-danger/10 px-3 py-2 text-sm text-danger">{endError}</p>}
-      <div className="mt-6 flex justify-end gap-3">
-        <Button variant="secondary" onClick={() => setEnding(undefined)} disabled={endingLoading}>Cancel</Button>
-        <Button variant="danger" onClick={() => void finishEnding()} disabled={endingLoading}>{endingLoading ? 'Finishing…' : 'Finish'}</Button>
-      </div>
-    </Dialog>}
-  </>;
-}
-
-type ErrorBoundaryState = { error?: Error };
-class ErrorBoundary extends Component<{ children: React.ReactNode }, ErrorBoundaryState> {
-  state: ErrorBoundaryState = {};
+class ErrorBoundary extends Component<{ children: ReactNode }, EBState> {
+  state: EBState = {};
   static getDerivedStateFromError(error: Error) { return { error }; }
-  componentDidCatch(error: Error) { console.error('Nyaya portal render error', error); }
-  render() { return this.state.error ? <div className="mx-auto max-w-xl px-5 py-20 text-center"><h1 className="text-2xl font-bold">This portal page could not render.</h1><p className="mt-3 text-sm text-muted-foreground">{this.state.error.message}</p><Button className="mt-6" onClick={() => this.setState({ error: undefined })}>Try again</Button></div> : this.props.children; }
+  componentDidCatch(error: Error) { console.error('[Nyaya] render error', error); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4 text-center">
+          <p className="text-sm font-medium text-ink">Something went wrong</p>
+          <p className="text-sm text-muted-fg max-w-xs">{this.state.error.message}</p>
+          <Button onClick={() => this.setState({ error: undefined })}>Try again</Button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
-export function App() { return <ErrorBoundary><Routes><Route element={<Layout />}><Route path="/" element={<Home />} /><Route path="/market" element={<Market />} /><Route path="/investigations" element={<Investigations />} /><Route path="/jurors" element={<Jurors />} /><Route path="/jurors/:id" element={<JurorDetails />} /><Route path="/wallet" element={<Wallet />} /><Route path="/login" element={<AuthPage />} /><Route path="/register" element={<AuthPage initialMode="register" />} /><Route path="/admin/login" element={<AuthPage admin />} /><Route path="/admin" element={<Admin />} /><Route path="*" element={<Navigate to="/" replace />} /></Route></Routes></ErrorBoundary>; }
+// ─── App ──────────────────────────────────────────────────────────────────────
+
+export function App() {
+  return (
+    <ErrorBoundary>
+      <Routes>
+        {/* Main app shell */}
+        <Route element={<Layout />}>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/jurors" element={<JurorsPage />} />
+          <Route path="/jurors/:id" element={<JurorDetailPage />} />
+          <Route path="/cases" element={<CasesPage />} />
+          <Route path="/cases/:id" element={<CaseDetailPage />} />
+          <Route path="/my-positions" element={<MyPositionsPage />} />
+          <Route path="/admin/demo" element={<DemoTriggerPage />} />
+        </Route>
+
+        {/* Catch-all */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </ErrorBoundary>
+  );
+}
